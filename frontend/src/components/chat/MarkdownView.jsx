@@ -49,7 +49,7 @@ function MarkdownView({ content = '', sx = {} }) {
           borderBottom: '1px solid',
           borderColor: 'divider',
           pb: 0.5,
-          '&:first-child': { mt: 0 },
+          '&:first-of-type': { mt: 0 },
         },
         '& h2': {
           fontSize: '1.18rem',
@@ -58,7 +58,7 @@ function MarkdownView({ content = '', sx = {} }) {
           mb: 0.75,
           lineHeight: 1.35,
           color: 'text.primary',
-          '&:first-child': { mt: 0 },
+          '&:first-of-type': { mt: 0 },
         },
         '& h3': {
           fontSize: '1.05rem',
@@ -67,7 +67,7 @@ function MarkdownView({ content = '', sx = {} }) {
           mb: 0.5,
           lineHeight: 1.4,
           color: 'text.primary',
-          '&:first-child': { mt: 0 },
+          '&:first-of-type': { mt: 0 },
         },
         '& h4, & h5, & h6': {
           fontSize: '0.95rem',
@@ -76,13 +76,13 @@ function MarkdownView({ content = '', sx = {} }) {
           mb: 0.4,
           lineHeight: 1.4,
           color: 'text.primary',
-          '&:first-child': { mt: 0 },
+          '&:first-of-type': { mt: 0 },
         },
 
         // Paragraphs
         '& p': {
           my: 0.75,
-          '&:first-child': { mt: 0 },
+          '&:first-of-type': { mt: 0 },
           '&:last-child': { mb: 0 },
         },
 
@@ -99,7 +99,7 @@ function MarkdownView({ content = '', sx = {} }) {
         '& ul, & ol': {
           my: 0.75,
           pl: 2.75,
-          '&:first-child': { mt: 0 },
+          '&:first-of-type': { mt: 0 },
           '&:last-child': { mb: 0 },
         },
         '& li': {
@@ -129,7 +129,7 @@ function MarkdownView({ content = '', sx = {} }) {
           '& p': {
             my: 0.25,
           },
-          '&:first-child': { mt: 0 },
+          '&:first-of-type': { mt: 0 },
           '&:last-child': { mb: 0 },
         },
 

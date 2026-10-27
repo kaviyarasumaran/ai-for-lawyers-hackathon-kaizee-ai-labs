@@ -4,20 +4,12 @@ import {
   Box,
   Button,
   Chip,
-  Divider,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   IconButton,
-  Link as MuiLink,
-  LinearProgress,
   Paper,
   Tooltip,
   Typography,
 } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
-import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined'
 import CalendarMonthOutlinedIcon from '@mui/icons-material/CalendarMonthOutlined'
 import ChatOutlinedIcon from '@mui/icons-material/ChatOutlined'
@@ -25,30 +17,21 @@ import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
-import GavelOutlinedIcon from '@mui/icons-material/GavelOutlined'
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
-import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import ReplayRoundedIcon from '@mui/icons-material/ReplayRounded'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import ChatSidebar from '../components/chat/ChatSidebar'
-import { useCases } from '../cases/useCases'
+import { useCases } from '../hooks'
 import { getCasePipeline, restartCasePipeline, retryCasePipeline } from '../api/cases'
 import { caseworkTools } from '../casework-tools/tools'
 import NewCaseDialog from '../cases/NewCaseDialog'
-
-function formatDate(date) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(date))
-}
-
-function formatBytes(bytes) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
+import CaseActionsDialogs from '../cases/CaseActionsDialogs'
+import CasePipelineAlerts from '../cases/CasePipelineAlerts'
+import CaseDocumentsList from '../cases/CaseDocumentsList'
+import CaseFindingsCard from '../cases/CaseFindingsCard'
+import CaseSummaryCard from '../cases/CaseSummaryCard'
+import CaseConstitutionCard from '../cases/CaseConstitutionCard'
+import { formatDate } from '../utils/formatters'
 
 function CaseDetailsPage() {
   const { caseId } = useParams({ strict: false })
@@ -341,51 +324,13 @@ function CaseDetailsPage() {
 
           {caseError && <Alert severity="error" onClose={clearCaseError} sx={{ mb: 2 }}>{caseError}</Alert>}
           {pipelineError && <Alert severity="error" sx={{ mb: 2 }}>{pipelineError}</Alert>}
-          {pipelineIsActive && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              <Typography sx={{ mb: 0.75, fontSize: 'body2.fontSize' }}>
-                {pipeline?.processedDocuments ?? 0} of {pipeline?.totalDocuments ?? 0} documents processed
-                {pipeline?.stage ? ` · ${pipeline.stage.replaceAll('_', ' ')}` : ''}. This runs in the background; you can leave this page.
-              </Typography>
-              <LinearProgress
-                variant={pipeline?.totalDocuments ? 'determinate' : 'indeterminate'}
-                value={
-                  pipeline?.totalDocuments
-                    ? (pipeline.processedDocuments / pipeline.totalDocuments) * 100
-                    : 0
-                }
-              />
-            </Alert>
-          )}
-          {(pipeline?.status === 'failed' || pipeline?.status === 'partial') && (
-            <Alert
-              severity={pipeline.status === 'failed' ? 'error' : 'warning'}
-              action={
-                <Button
-                  color="inherit"
-                  size="small"
-                  disabled={isRetryingPipeline || isRestartingPipeline}
-                  onClick={handleRetryPipeline}
-                >
-                  {isRetryingPipeline ? 'Retrying…' : 'Retry processing'}
-                </Button>
-              }
-              sx={{ mb: 2 }}
-            >
-              {pipeline.stage === 'summary_failed' && pipeline.failedDocuments
-                ? `${pipeline.failedDocuments} document${pipeline.failedDocuments === 1 ? '' : 's'} failed, and the case summary and findings could not be generated.`
-                : pipeline.stage === 'summary_failed'
-                  ? 'The case summary and findings could not be generated.'
-                  : `${pipeline.failedDocuments} document${pipeline.failedDocuments === 1 ? '' : 's'} could not be processed.`}
-              {pipeline.documents
-                .filter((document) => document.status === 'failed')
-                .map((document) => (
-                  <Typography key={document.id} component="div" sx={{ mt: 0.5, fontSize: 'caption.fontSize' }}>
-                    {document.name}: {document.error}
-                  </Typography>
-                ))}
-            </Alert>
-          )}
+          <CasePipelineAlerts
+            pipeline={pipeline}
+            pipelineIsActive={pipelineIsActive}
+            isRetryingPipeline={isRetryingPipeline}
+            isRestartingPipeline={isRestartingPipeline}
+            onRetryPipeline={handleRetryPipeline}
+          />
           <Alert severity="warning" icon={false} sx={{ mb: 2, fontSize: 'caption.fontSize' }}>
             Case details and files are stored on the backend. Files use public Supabase links, so anyone with a link can access them. Chat messages remain in browser memory.
           </Alert>
@@ -425,178 +370,27 @@ function CaseDetailsPage() {
             }}
           >
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-              <Paper
-                component="section"
-                variant="outlined"
-                sx={{ p: { xs: 1.75, sm: 2 }, borderColor: '#e8eae5', borderRadius: 2.5, boxShadow: 'none' }}
-              >
-                <Typography sx={{ color: '#303a32', fontSize: 'body2.fontSize', fontWeight: 700 }}>
-                  Case findings
-                </Typography>
-                <Typography sx={{ mt: 0.5, mb: 1.5, color: '#858c85', fontSize: 'caption.fontSize', lineHeight: 1.7 }}>
-                  Automatically drafted from processed case documents. Verify every finding against its cited source before relying on it.
-                </Typography>
-                {findings.length ? (
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 1.5 }}>
-                    {findings.map((finding, index) => (
-                      <Box key={`${finding.title}-${index}`} sx={{ p: 1.25, border: '1px solid #e7ebe5', borderRadius: 1.5, bgcolor: '#f8faf7' }}>
-                        <Typography sx={{ color: '#48524a', fontSize: 'caption.fontSize', fontWeight: 700 }}>
-                          {finding.title}
-                        </Typography>
-                        <Typography sx={{ mt: 0.4, color: '#69736b', fontSize: 'caption.fontSize', lineHeight: 1.65 }}>
-                          {finding.detail}
-                        </Typography>
-                        {finding.sources?.length > 0 && (
-                          <Typography sx={{ mt: 0.5, color: '#858c85', fontSize: 'caption.fontSize' }}>
-                            Sources: {finding.sources.join('; ')}
-                          </Typography>
-                        )}
-                      </Box>
-                    ))}
-                  </Box>
-                ) : (
-                  <Alert severity="info" icon={false} sx={{ mb: 1.5, border: '1px solid #e7ebe5', bgcolor: '#f8faf7', color: '#758075', fontSize: 'caption.fontSize', lineHeight: 1.65 }}>
-                    {pipelineIsActive
-                      ? 'Findings will appear after document processing completes.'
-                      : 'No findings have been generated yet. Upload supported source documents to start processing.'}
-                  </Alert>
-                )}
-                <Button
-                  onClick={openCaseChat}
-                  startIcon={<AutoAwesomeOutlinedIcon />}
-                  endIcon={<ArrowForwardRoundedIcon />}
-                  sx={{ fontSize: 'caption.fontSize' }}
-                >
-                  Review with AI
-                </Button>
-              </Paper>
+              <CaseFindingsCard
+                findings={findings}
+                pipelineIsActive={pipelineIsActive}
+                onOpenCaseChat={openCaseChat}
+              />
 
-              <Paper
-                component="section"
-                variant="outlined"
-                sx={{ p: { xs: 1.75, sm: 2 }, borderColor: '#e8eae5', borderRadius: 2.5, boxShadow: 'none' }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-                  <Box>
-                    <Typography sx={{ color: '#303a32', fontSize: 'body2.fontSize', fontWeight: 700 }}>
-                      Case summary
-                    </Typography>
-                    <Typography sx={{ mt: 0.5, color: '#858c85', fontSize: 'caption.fontSize' }}>
-                      {generatedSummary ? 'AI-generated draft from case documents. Verify before relying on it.' : manualSummary ? 'Provided when this case was created.' : 'No summary has been added.'}
-                    </Typography>
-                  </Box>
-                  <Button
-                    onClick={openCaseChat}
-                    size="small"
-                    startIcon={<AutoAwesomeOutlinedIcon />}
-                    sx={{ flexShrink: 0, fontSize: 'caption.fontSize' }}
-                  >
-                    Ask AI
-                  </Button>
-                </Box>
-                <Divider sx={{ my: 1.5, borderColor: '#eff0ec' }} />
-                <Typography sx={{ color: generatedSummary || manualSummary ? '#59645b' : '#9aa19a', fontSize: 'body2.fontSize', lineHeight: 1.8 }}>
-                  {generatedSummary || manualSummary || (pipelineIsActive ? 'A draft summary will appear after document processing completes.' : 'Upload supported source documents to generate a draft summary.')}
-                </Typography>
-              </Paper>
+              <CaseSummaryCard
+                generatedSummary={generatedSummary}
+                manualSummary={manualSummary}
+                pipelineIsActive={pipelineIsActive}
+                onOpenCaseChat={openCaseChat}
+              />
 
-              <Paper
-                component="section"
-                variant="outlined"
-                sx={{ p: { xs: 1.75, sm: 2 }, borderColor: '#e8eae5', borderRadius: 2.5, boxShadow: 'none' }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1.25 }}>
-                  <Box>
-                    <Typography sx={{ color: '#303a32', fontSize: 'body2.fontSize', fontWeight: 700 }}>
-                      Related documents
-                    </Typography>
-                    <Typography sx={{ mt: 0.4, color: '#858c85', fontSize: 'caption.fontSize' }}>
-                      Files attached to this case.
-                    </Typography>
-                  </Box>
-                  <Chip label={caseItem.documents.length} size="small" sx={{ height: 21, bgcolor: '#f1f3ef', color: '#69736b', fontSize: 'caption.fontSize' }} />
-                </Box>
-                {caseItem.documents.length === 0 ? (
-                  <Typography sx={{ py: 1.25, color: '#929992', fontSize: 'caption.fontSize' }}>
-                    No related documents have been uploaded yet.
-                  </Typography>
-                ) : (
-                  <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                    {caseItem.documents.map((file, index) => (
-                      <Box
-                        key={file.id}
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 1,
-                          py: 1,
-                          borderTop: index === 0 ? '1px solid #eff0ec' : 'none',
-                          borderBottom: '1px solid #eff0ec',
-                        }}
-                      >
-                        <DescriptionOutlinedIcon sx={{ flex: 'none', color: '#78907b', fontSize: 17 }} />
-                        <Box sx={{ minWidth: 0, flex: 1 }}>
-                          <Typography noWrap sx={{ color: '#48524a', fontSize: 'caption.fontSize', fontWeight: 600 }}>
-                            {file.name}
-                          </Typography>
-                          <Typography sx={{ mt: 0.25, color: '#929992', fontSize: 'caption.fontSize' }}>
-                            {formatBytes(file.size)}
-                            {documentPipelineById.get(file.id)?.status
-                              ? ` · ${documentPipelineById.get(file.id).status}`
-                              : ''}
-                          </Typography>
-                        </Box>
-                        <Button
-                          component="a"
-                          href={file.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          download={file.name}
-                          endIcon={<OpenInNewRoundedIcon />}
-                          sx={{ flexShrink: 0, fontSize: 'caption.fontSize' }}
-                        >
-                          Open
-                        </Button>
-                      </Box>
-                    ))}
-                  </Box>
-                )}
-              </Paper>
+              <CaseDocumentsList
+                documents={caseItem.documents}
+                documentPipelineById={documentPipelineById}
+              />
             </Box>
 
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-              <Paper
-                component="section"
-                variant="outlined"
-                sx={{ p: { xs: 1.75, sm: 2 }, borderColor: '#e8eae5', borderRadius: 2.5, boxShadow: 'none' }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                  <GavelOutlinedIcon sx={{ color: '#78907b', fontSize: 17 }} />
-                  <Typography sx={{ color: '#303a32', fontSize: 'body2.fontSize', fontWeight: 700 }}>
-                    Indian Constitution
-                  </Typography>
-                </Box>
-                <Typography sx={{ mt: 0.75, color: '#858c85', fontSize: 'caption.fontSize', lineHeight: 1.7 }}>
-                  No constitutional provisions have been identified for this case. Check applicability against the case documents before relying on any provision.
-                </Typography>
-                <MuiLink
-                  href="https://www.indiacode.nic.in/"
-                  target="_blank"
-                  rel="noreferrer"
-                  underline="hover"
-                  sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, mt: 1.25, color: '#4e7957', fontSize: 'body2.fontSize', fontWeight: 600 }}
-                >
-                  India Code official legislation portal
-                  <OpenInNewRoundedIcon sx={{ fontSize: 13 }} />
-                </MuiLink>
-                <Button
-                  onClick={openCaseChat}
-                  startIcon={<AutoAwesomeOutlinedIcon />}
-                  sx={{ display: 'flex', mt: 0.75, fontSize: 'caption.fontSize' }}
-                >
-                  Explore with AI
-                </Button>
-              </Paper>
+              <CaseConstitutionCard onOpenCaseChat={openCaseChat} />
 
               <Paper
                 component="section"
@@ -649,57 +443,20 @@ function CaseDetailsPage() {
         onClose={() => setIsEditOpen(false)}
         onCreated={() => setIsEditOpen(false)}
       />
-      <Dialog open={isDeleteOpen} onClose={() => setIsDeleteOpen(false)}>
-        <DialogTitle>Delete case?</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Delete “{caseItem.title}”? This removes the saved case record. Browser-only documents and chat history for this case will also be removed.
-          </Typography>
-          {deleteError && <Alert severity="error" sx={{ mt: 1.5 }}>{deleteError}</Alert>}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setIsDeleteOpen(false)}>Cancel</Button>
-          <Button onClick={handleDeleteCase} color="error" variant="contained">Delete case</Button>
-        </DialogActions>
-      </Dialog>
-      <Dialog
-        open={isRestartOpen}
-        onClose={() => {
-          if (!isRestartingPipeline) setIsRestartOpen(false)
-        }}
-      >
-        <DialogTitle>
-          {pipelineIsActive ? 'Stop and restart processing?' : 'Reprocess all documents?'}
-        </DialogTitle>
-        <DialogContent>
-          <Typography>
-            {pipelineIsActive
-              ? 'The active case-processing job will be stopped and every document will be queued again.'
-              : 'Every document in this case will be queued for processing again.'}
-            {' '}The current summary and findings will remain available until new results are saved.
-          </Typography>
-          {pipelineError && <Alert severity="error" sx={{ mt: 1.5 }}>{pipelineError}</Alert>}
-        </DialogContent>
-        <DialogActions>
-          <Button
-            disabled={isRestartingPipeline || isRetryingPipeline}
-            onClick={() => setIsRestartOpen(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            disabled={isRestartingPipeline || isRetryingPipeline}
-            onClick={handleRestartPipeline}
-            variant="contained"
-          >
-            {isRestartingPipeline
-              ? 'Restarting…'
-              : pipelineIsActive
-                ? 'Stop and restart'
-                : 'Reprocess all'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <CaseActionsDialogs
+        caseItem={caseItem}
+        isDeleteOpen={isDeleteOpen}
+        onCloseDelete={() => setIsDeleteOpen(false)}
+        onDeleteCase={handleDeleteCase}
+        deleteError={deleteError}
+        isRestartOpen={isRestartOpen}
+        onCloseRestart={() => setIsRestartOpen(false)}
+        onRestartPipeline={handleRestartPipeline}
+        pipelineIsActive={pipelineIsActive}
+        pipelineError={pipelineError}
+        isRestartingPipeline={isRestartingPipeline}
+        isRetryingPipeline={isRetryingPipeline}
+      />
     </Box>
   )
 }

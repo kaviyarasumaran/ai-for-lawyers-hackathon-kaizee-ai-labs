@@ -25,15 +25,8 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import { useNavigate } from '@tanstack/react-router'
 import ChatSidebar from '../components/chat/ChatSidebar'
 import NewCaseDialog from '../cases/NewCaseDialog'
-import { useCases } from '../cases/useCases'
-
-function formatDate(date) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(date))
-}
+import { useCases } from '../hooks'
+import { formatDate } from '../utils/formatters'
 
 function CasesPage() {
   const isDark = useTheme().palette.mode === 'dark'

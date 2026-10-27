@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material'
-import { ThemeStoreContext } from './ThemeStoreContext'
+import { ThemeStoreContext } from '../context/ThemeStoreContext'
 
 const themeStorageKey = 'counsel-color-mode'
 

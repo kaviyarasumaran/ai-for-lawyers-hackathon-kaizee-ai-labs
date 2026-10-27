@@ -1,5 +1,5 @@
 import { useContext } from 'react'
-import { CaseContext } from './CaseContext.js'
+import { CaseContext } from '../context/CaseContext'
 
 export function useCases() {
   const context = useContext(CaseContext)

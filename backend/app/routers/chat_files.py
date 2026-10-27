@@ -160,8 +160,11 @@ async def get_attachment_file_content(
         except PyMongoError:
             pass
 
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found.")
+
     clean_chat_id = (chat_id or "").strip()
-    if attachment and clean_chat_id and attachment.get("chat_id") and attachment["chat_id"] != clean_chat_id:
+    if clean_chat_id and attachment.get("chat_id") and attachment["chat_id"] != clean_chat_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied. This media file belongs to a different chat session.",
@@ -199,14 +202,20 @@ async def process_attachment_on_demand(
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found.")
 
-    clean_chat_id = (chat_id or attachment.get("chat_id") or "default-chat").strip()
+    clean_chat_id = (chat_id or "").strip()
+    if clean_chat_id and attachment.get("chat_id") and attachment["chat_id"] != clean_chat_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. This file belongs to a different chat session.",
+        )
+    effective_chat_id = attachment.get("chat_id") or clean_chat_id or "default-chat"
     try:
         content = await get_attachment_bytes(attachment_id, attachment.get("name"), attachment.get("path"))
         result = await process_chat_attachment(
             attachment_id=attachment_id,
             name=attachment["name"],
             content=content,
-            chat_id=clean_chat_id,
+            chat_id=effective_chat_id,
         )
         return {"status": "success", "result": result}
     except Exception as exc:

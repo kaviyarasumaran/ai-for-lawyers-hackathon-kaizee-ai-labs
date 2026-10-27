@@ -824,7 +824,11 @@ def search_case_chunks(
     embedding: list[float] | None = None,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
-    if not embedding:
+    has_valid_embedding = bool(embedding and any(v != 0.0 for v in embedding))
+    if not has_valid_embedding:
+        clean_q = query.strip()
+        if not clean_q:
+            return []
         with connect() as connection:
             return connection.execute(
                 """
@@ -917,10 +921,34 @@ def get_case_header_chunks(case_id: str, limit: int = 2) -> list[dict[str, Any]]
 
 def search_global_chunks(
     query: str,
-    embedding: list[float],
+    embedding: list[float] | None = None,
     tenant_id: str | None = None,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
+    has_valid_embedding = bool(embedding and any(v != 0.0 for v in embedding))
+    if not has_valid_embedding:
+        clean_q = query.strip()
+        if not clean_q:
+            return []
+        with connect() as connection:
+            return connection.execute(
+                """
+                SELECT chunk.id AS chunk_id, chunk.document_id, chunk.section,
+                       chunk.content, chunk.page_start, chunk.page_end,
+                       document.title AS name, document.document_type,
+                       document.jurisdiction, document.source, document.url,
+                       document.publication_date, document.effective_date,
+                       ts_rank_cd(chunk.search_vector, plainto_tsquery('english', %s)) AS score
+                FROM global_legal_chunks chunk
+                JOIN global_legal_documents document ON document.id = chunk.document_id
+                WHERE (document.tenant_id IS NULL OR document.tenant_id = %s)
+                  AND chunk.search_vector @@ plainto_tsquery('english', %s)
+                ORDER BY score DESC
+                LIMIT %s
+                """,
+                (query, tenant_id, query, limit),
+            ).fetchall()
+
     vector = "[" + ",".join(str(value) for value in embedding) + "]"
     with connect() as connection:
         return connection.execute(
@@ -1490,10 +1518,10 @@ def get_staged_chat_attachments(chat_id: str, attachment_ids: list[str] | None =
                        added_at, pipeline_status, pipeline_stage, pipeline_error,
                        page_count, chunk_count, extracted_text
                 FROM chat_attachments
-                WHERE id = ANY(%s) OR (chat_id = %s AND pipeline_status = 'staged')
+                WHERE chat_id = %s AND (id = ANY(%s) OR pipeline_status = 'staged')
                 ORDER BY added_at ASC
                 """,
-                (attachment_ids, chat_id),
+                (chat_id, attachment_ids),
             ).fetchall()
         else:
             rows = connection.execute(
@@ -1551,7 +1579,11 @@ def search_chat_chunks(
     embedding: list[float] | None = None,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
-    if not embedding:
+    has_valid_embedding = bool(embedding and any(v != 0.0 for v in embedding))
+    if not has_valid_embedding:
+        clean_q = query.strip()
+        if not clean_q:
+            return []
         with connect() as connection:
             return connection.execute(
                 """

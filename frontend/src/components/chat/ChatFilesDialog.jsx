@@ -8,75 +8,22 @@ import {
   IconButton,
   InputAdornment,
   MenuItem,
-  Paper,
   Select,
   Tab,
   Tabs,
   TextField,
-  Tooltip,
   Typography,
   useTheme,
 } from '@mui/material'
 import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined'
-import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined'
-import GraphicEqRoundedIcon from '@mui/icons-material/GraphicEqRounded'
-import HourglassEmptyRoundedIcon from '@mui/icons-material/HourglassEmptyRounded'
-import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined'
-import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined'
-import MovieOutlinedIcon from '@mui/icons-material/MovieOutlined'
-import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
-import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import SortRoundedIcon from '@mui/icons-material/SortRounded'
+import { getMediaCategory } from '../../utils/chatUtils'
+import ChatFileRow from './ChatFileRow'
 
-function formatBytes(bytes) {
-  if (!bytes || bytes <= 0) return '0 B'
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function getMediaType(file) {
-  const type = (file?.type || file?.contentType || file?.content_type || '').toLowerCase()
-  const name = (file?.name || '').toLowerCase()
-  const ext = name.split('.').pop() || ''
-  if (type.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg', 'heic', 'tiff', 'tif'].includes(ext)) {
-    return 'images'
-  }
-  // Audio check: prioritize audio types and filenames (voice recordings, audio notes)
-  const isAudio =
-    type.startsWith('audio/') ||
-    ['mp3', 'wav', 'm4a', 'ogg', 'aac', 'flac', 'wma', 'weba'].includes(ext) ||
-    (ext === 'webm' && (type.includes('audio') || name.includes('voice') || name.includes('audio') || !name.includes('video')))
-  if (isAudio) {
-    return 'audio'
-  }
-  if (type.startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'flv', 'm4v', 'webm'].includes(ext)) {
-    return 'videos'
-  }
-  return 'documents'
-}
-
-function getFileIcon(file) {
-  const mediaType = getMediaType(file)
-  const name = (file?.name || '').toLowerCase()
-  if (mediaType === 'images') return <ImageOutlinedIcon sx={{ fontSize: 20 }} />
-  if (mediaType === 'videos') return <MovieOutlinedIcon sx={{ fontSize: 20 }} />
-  if (mediaType === 'audio') return <GraphicEqRoundedIcon sx={{ fontSize: 20 }} />
-  if (name.endsWith('.pdf')) return <PictureAsPdfOutlinedIcon sx={{ fontSize: 20 }} />
-  return <InsertDriveFileOutlinedIcon sx={{ fontSize: 20 }} />
-}
-
-function resolveFileUrl(file) {
-  if (file?.url) return file.url
-  if (file?.id) return `/api/chat/attachments/${encodeURIComponent(file.id)}/file`
-  return '#'
-}
-
-function ChatFilesDialog({ open, onClose, files = [], onRemove, onAddFiles }) {
+function ChatFilesDialog({ open, onClose, files = [], chatId, onRemove, onAddFiles }) {
   const isDark = useTheme().palette.mode === 'dark'
   const [category, setCategory] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -85,10 +32,10 @@ function ChatFilesDialog({ open, onClose, files = [], onRemove, onAddFiles }) {
   const counts = useMemo(() => {
     return {
       all: files.length,
-      documents: files.filter((f) => getMediaType(f) === 'documents').length,
-      images: files.filter((f) => getMediaType(f) === 'images').length,
-      videos: files.filter((f) => getMediaType(f) === 'videos').length,
-      audio: files.filter((f) => getMediaType(f) === 'audio').length,
+      documents: files.filter((f) => getMediaCategory(f) === 'documents').length,
+      images: files.filter((f) => getMediaCategory(f) === 'images').length,
+      videos: files.filter((f) => getMediaCategory(f) === 'videos').length,
+      audio: files.filter((f) => getMediaCategory(f) === 'audio').length,
     }
   }, [files])
 
@@ -97,7 +44,7 @@ function ChatFilesDialog({ open, onClose, files = [], onRemove, onAddFiles }) {
 
     // 1. Filter by category
     if (category !== 'all') {
-      result = result.filter((file) => getMediaType(file) === category)
+      result = result.filter((file) => getMediaCategory(file) === category)
     }
 
     // 2. Filter by search query
@@ -336,185 +283,15 @@ function ChatFilesDialog({ open, onClose, files = [], onRemove, onAddFiles }) {
           </Box>
         ) : (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-            {filteredAndSortedFiles.map((file) => {
-              const mediaType = getMediaType(file)
-              const fileUrl = resolveFileUrl(file)
-              const isPdf = (file.name || '').toLowerCase().endsWith('.pdf')
-              const status = file.pipeline_status || file.pipelineStatus || 'staged'
-              const pageCount = file.page_count ?? file.pageCount
-
-              return (
-                <Paper
-                  key={file.id || file.name}
-                  variant="outlined"
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    p: 1.5,
-                    borderRadius: 2.5,
-                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#e2e7e2',
-                    bgcolor: isDark ? 'rgba(255,255,255,0.03)' : '#fff',
-                    boxShadow: 'none',
-                    transition: 'border-color 140ms ease, box-shadow 140ms ease',
-                    '&:hover': {
-                      borderColor: 'primary.main',
-                      boxShadow: isDark ? '0 2px 10px rgba(0,0,0,0.25)' : '0 2px 10px rgba(50,80,50,0.05)',
-                    },
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    {/* Media Thumbnail or Icon */}
-                    {mediaType === 'images' ? (
-                      <Box
-                        component="img"
-                        src={fileUrl}
-                        alt={file.name}
-                        onError={(e) => {
-                          if (file.id && !e.target.dataset.fallback) {
-                            e.target.dataset.fallback = 'true'
-                            e.target.src = `/api/chat/attachments/${encodeURIComponent(file.id)}/file`
-                          }
-                        }}
-                        sx={{
-                          width: 54,
-                          height: 54,
-                          flex: 'none',
-                          borderRadius: 2,
-                          objectFit: 'cover',
-                          bgcolor: isDark ? '#111813' : '#f0f2ed',
-                          border: '1px solid',
-                          borderColor: 'divider',
-                        }}
-                      />
-                    ) : (
-                      <Box
-                        sx={{
-                          display: 'grid',
-                          width: 50,
-                          height: 50,
-                          flex: 'none',
-                          placeItems: 'center',
-                          borderRadius: 2,
-                          color: isPdf ? '#d32f2f' : 'primary.main',
-                          bgcolor: isDark ? 'rgba(255,255,255,0.05)' : '#eef4ee',
-                          border: '1px solid',
-                          borderColor: 'divider',
-                        }}
-                      >
-                        {getFileIcon(file)}
-                      </Box>
-                    )}
-
-                    {/* File Information */}
-                    <Box sx={{ minWidth: 0, flex: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                        <Typography noWrap sx={{ fontSize: 'body2.fontSize', fontWeight: 600, color: 'text.primary' }}>
-                          {file.name}
-                        </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.75, mt: 0.5 }}>
-                        <Typography sx={{ color: 'text.secondary', fontSize: '0.72rem' }}>
-                          {formatBytes(file.size)}
-                        </Typography>
-                        {pageCount ? (
-                          <Chip
-                            label={`${pageCount} page${pageCount > 1 ? 's' : ''}`}
-                            size="small"
-                            sx={{ height: 18, fontSize: '0.68rem', bgcolor: isDark ? 'rgba(255,255,255,0.06)' : '#eef2ee' }}
-                          />
-                        ) : null}
-                        <Chip
-                          icon={
-                            status === 'completed'
-                              ? <CheckCircleOutlineRoundedIcon sx={{ fontSize: '12px !important' }} />
-                              : <HourglassEmptyRoundedIcon sx={{ fontSize: '12px !important' }} />
-                          }
-                          label={
-                            status === 'completed'
-                              ? 'Ready / Indexed'
-                              : status === 'staged'
-                                ? 'Staged'
-                                : status === 'processing'
-                                  ? 'Processing...'
-                                  : 'Uploaded'
-                          }
-                          size="small"
-                          color={status === 'completed' ? 'success' : 'default'}
-                          variant="outlined"
-                          sx={{ height: 18, fontSize: '0.68rem', '& .MuiChip-label': { px: 0.5 } }}
-                        />
-                      </Box>
-                    </Box>
-
-                    {/* Action Buttons */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <Tooltip title={`Open or download ${file.name}`}>
-                        <IconButton
-                          component="a"
-                          href={fileUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          aria-label={`Open ${file.name}`}
-                          size="small"
-                          sx={{ color: 'primary.main', bgcolor: isDark ? 'rgba(255,255,255,0.05)' : '#f2f6f2' }}
-                        >
-                          <OpenInNewRoundedIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      {onRemove && (
-                        <Tooltip title={`Delete ${file.name}`}>
-                          <IconButton
-                            aria-label={`Remove ${file.name}`}
-                            onClick={() => onRemove(file.id || file.name)}
-                            size="small"
-                            sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
-                          >
-                            <DeleteOutlineRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </Box>
-                  </Box>
-
-                  {/* Inline Audio Player if Audio */}
-                  {mediaType === 'audio' && (
-                    <Box sx={{ mt: 1.25, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
-                      <Box
-                        component="audio"
-                        src={fileUrl}
-                        controls
-                        onError={(e) => {
-                          if (file.id && !e.target.dataset.fallback) {
-                            e.target.dataset.fallback = 'true'
-                            e.target.src = `/api/chat/attachments/${encodeURIComponent(file.id)}/file`
-                          }
-                        }}
-                        sx={{ display: 'block', width: '100%', height: 32 }}
-                      />
-                    </Box>
-                  )}
-
-                  {/* Inline Video Player if Video */}
-                  {mediaType === 'videos' && (
-                    <Box sx={{ mt: 1.25, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
-                      <Box
-                        component="video"
-                        src={fileUrl}
-                        controls
-                        preload="metadata"
-                        onError={(e) => {
-                          if (file.id && !e.target.dataset.fallback) {
-                            e.target.dataset.fallback = 'true'
-                            e.target.src = `/api/chat/attachments/${encodeURIComponent(file.id)}/file`
-                          }
-                        }}
-                        sx={{ width: '100%', maxHeight: 180, borderRadius: 1.5, bgcolor: '#000', display: 'block' }}
-                      />
-                    </Box>
-                  )}
-                </Paper>
-              )
-            })}
+            {filteredAndSortedFiles.map((file) => (
+              <ChatFileRow
+                key={file.id || file.name}
+                file={file}
+                chatId={chatId}
+                onRemove={onRemove}
+                isDark={isDark}
+              />
+            ))}
           </Box>
         )}
       </Box>

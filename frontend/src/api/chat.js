@@ -1,6 +1,9 @@
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, '') ?? ''
 
-export async function requestChatReply(messages, { chatId, caseId, attachment_ids, onDelta } = {}) {
+export async function requestChatReply(
+  messages,
+  { chatId, caseId, attachment_ids, onDelta, onSources } = {},
+) {
   const isStreaming = typeof onDelta === 'function'
   let response
 
@@ -40,7 +43,12 @@ export async function requestChatReply(messages, { chatId, caseId, attachment_id
     if (chatId && result.chatId !== chatId) {
       throw new Error('The chat backend returned a response for a different conversation.')
     }
-    return result.reply.trim()
+    const sources = Array.isArray(result.sources) ? result.sources : []
+    onSources?.(sources)
+    return {
+      reply: result.reply.trim(),
+      sources,
+    }
   }
 
   if (!response.body) {
@@ -51,6 +59,7 @@ export async function requestChatReply(messages, { chatId, caseId, attachment_id
   const decoder = new TextDecoder()
   let buffer = ''
   let accumulatedReply = ''
+  let accumulatedSources = []
 
   while (true) {
     const { done, value } = await reader.read()
@@ -66,11 +75,18 @@ export async function requestChatReply(messages, { chatId, caseId, attachment_id
       if (rawData === '[DONE]') break
       try {
         const payload = JSON.parse(rawData)
-        if (payload.type === 'delta' && payload.delta) {
+        if (payload.type === 'sources' && Array.isArray(payload.sources)) {
+          accumulatedSources = payload.sources
+          onSources?.(accumulatedSources)
+        } else if (payload.type === 'delta' && payload.delta) {
           accumulatedReply += payload.delta
           onDelta(accumulatedReply)
         } else if (payload.type === 'done' && payload.reply) {
           accumulatedReply = payload.reply
+          if (Array.isArray(payload.sources)) {
+            accumulatedSources = payload.sources
+            onSources?.(accumulatedSources)
+          }
           onDelta(accumulatedReply)
         } else if (payload.type === 'error') {
           throw new Error(payload.detail || 'Streaming failed')
@@ -90,11 +106,18 @@ export async function requestChatReply(messages, { chatId, caseId, attachment_id
       if (rawData !== '[DONE]') {
         try {
           const payload = JSON.parse(rawData)
-          if (payload.type === 'delta' && payload.delta) {
+          if (payload.type === 'sources' && Array.isArray(payload.sources)) {
+            accumulatedSources = payload.sources
+            onSources?.(accumulatedSources)
+          } else if (payload.type === 'delta' && payload.delta) {
             accumulatedReply += payload.delta
             onDelta(accumulatedReply)
           } else if (payload.type === 'done' && payload.reply) {
             accumulatedReply = payload.reply
+            if (Array.isArray(payload.sources)) {
+              accumulatedSources = payload.sources
+              onSources?.(accumulatedSources)
+            }
             onDelta(accumulatedReply)
           }
         } catch {
@@ -108,7 +131,10 @@ export async function requestChatReply(messages, { chatId, caseId, attachment_id
     throw new Error('The chat backend returned an empty response.')
   }
 
-  return accumulatedReply.trim()
+  return {
+    reply: accumulatedReply.trim(),
+    sources: accumulatedSources,
+  }
 }
 
 export async function fetchBackendConversations() {

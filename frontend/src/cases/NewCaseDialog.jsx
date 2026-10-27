@@ -17,7 +17,8 @@ import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
-import { useCases } from './useCases'
+import { useCases } from '../hooks'
+import { formatBytes } from '../utils/formatters'
 
 const matterTypes = [
   'Contract review',
@@ -29,12 +30,6 @@ const matterTypes = [
   'General question',
   'Other',
 ]
-
-function formatBytes(bytes) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
 
 function NewCaseDialog({ open, onClose, onCreated, caseItem = null }) {
   const { createCase, updateCase } = useCases()

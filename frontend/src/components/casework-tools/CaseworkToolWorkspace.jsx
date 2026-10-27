@@ -4,7 +4,7 @@ import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined'
 import { useNavigate } from '@tanstack/react-router'
 import { CaseworkEmptyState } from './CaseworkPageLayout'
-import { useCases } from '../../cases/useCases'
+import { useCases } from '../../hooks'
 
 function CaseworkToolWorkspace({ tool }) {
   const navigate = useNavigate()

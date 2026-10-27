@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { KnowledgeBaseContext } from './KnowledgeBaseContext.js'
+import { KnowledgeBaseContext } from '../../context/KnowledgeBaseContext'
 import {
   deleteKnowledgeBaseDocument,
   listKnowledgeBaseDocuments,
-} from '../api/files'
+} from '../../api/files'
 
 function KnowledgeBaseProvider({ children }) {
   const [folders, setFolders] = useState([])

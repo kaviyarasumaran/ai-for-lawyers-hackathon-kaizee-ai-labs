@@ -1,8 +1,8 @@
 import { RouterProvider } from '@tanstack/react-router'
 import CaseProvider from './cases/CaseProvider'
-import KnowledgeBaseProvider from './knowledge-base/KnowledgeBaseProvider'
+import { KnowledgeBaseProvider } from './components/knowledge-base'
 import router from './router/router'
-import { ThemeStoreProvider } from './theme/ThemeStore'
+import { ThemeStoreProvider } from './store'
 
 function App() {
   return (

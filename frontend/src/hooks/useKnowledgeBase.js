@@ -1,5 +1,5 @@
 import { useContext } from 'react'
-import { KnowledgeBaseContext } from './KnowledgeBaseContext.js'
+import { KnowledgeBaseContext } from '../context/KnowledgeBaseContext'
 
 export function useKnowledgeBase() {
   const context = useContext(KnowledgeBaseContext)

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CaseContext } from './CaseContext.js'
+import { CaseContext } from '../context/CaseContext'
 import {
   createCaseRecord,
   deleteCaseRecord,
@@ -18,85 +18,17 @@ import {
   fetchBackendConversations,
   renameChatConversation,
 } from '../api/chat'
-
-const CHATS_STORAGE_KEY = 'ai_lawyer_chats'
-const ACTIVE_CHAT_KEY = 'ai_lawyer_active_chat_id'
-const CASE_MESSAGES_KEY = 'ai_lawyer_case_messages'
-
-const defaultCase = {
-  id: 'default-chat',
-  title: 'General legal chat',
-  matterType: 'General question',
-  parties: '',
-  summary: '',
-  status: 'Open',
-  createdAt: new Date().toISOString(),
-  lastActivityAt: new Date().toISOString(),
-  documents: [],
-  messages: [],
-  isDefault: true,
-}
-
-function createChat({ id = null, parentId = null, title = 'New chat', messages = [] } = {}) {
-  const now = new Date().toISOString()
-  return {
-    id: id || crypto.randomUUID(),
-    title,
-    messages,
-    parentId,
-    pinned: false,
-    createdAt: now,
-    lastActivityAt: now,
-  }
-}
-
-function loadSavedChats() {
-  try {
-    const raw = window.localStorage.getItem(CHATS_STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed
-      }
-    }
-  } catch {
-    // Ignore storage parse errors
-  }
-  return [createChat()]
-}
-
-function loadSavedActiveChatId(defaultId) {
-  try {
-    const saved = window.localStorage.getItem(ACTIVE_CHAT_KEY)
-    if (saved) return saved
-  } catch {
-    // Ignore storage errors
-  }
-  return defaultId
-}
-
-function loadSavedCaseMessages() {
-  try {
-    const raw = window.localStorage.getItem(CASE_MESSAGES_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (parsed && typeof parsed === 'object') {
-        return parsed
-      }
-    }
-  } catch {
-    // Ignore storage parse errors
-  }
-  return {}
-}
-
-function saveCaseMessages(messagesMap) {
-  try {
-    window.localStorage.setItem(CASE_MESSAGES_KEY, JSON.stringify(messagesMap))
-  } catch (error) {
-    console.warn('Failed to persist case messages to localStorage', error)
-  }
-}
+import {
+  createChat,
+  defaultCase,
+  loadSavedActiveChatId,
+  loadSavedCaseMessages,
+  loadSavedChats,
+  mapBackendMessageToChat,
+  saveActiveChatId,
+  saveCaseMessages,
+  saveChats,
+} from '../store/chatStore'
 
 function CaseProvider({ children }) {
   const initialCaseMessages = useMemo(() => loadSavedCaseMessages(), [])
@@ -126,20 +58,12 @@ function CaseProvider({ children }) {
 
   useEffect(() => {
     chatsRef.current = chats
-    try {
-      window.localStorage.setItem(CHATS_STORAGE_KEY, JSON.stringify(chats))
-    } catch (error) {
-      console.warn('Failed to persist chats to localStorage', error)
-    }
+    saveChats(chats)
   }, [chats])
 
   useEffect(() => {
     if (activeChatId) {
-      try {
-        window.localStorage.setItem(ACTIVE_CHAT_KEY, activeChatId)
-      } catch {
-        // ignore
-      }
+      saveActiveChatId(activeChatId)
     }
   }, [activeChatId])
 
@@ -210,12 +134,7 @@ function CaseProvider({ children }) {
                 if (c.id === bConv.id && c.messages.length === 0) {
                   return {
                     ...c,
-                    messages: msgRecords.map((m) => ({
-                      id: m.id,
-                      role: m.role,
-                      content: m.content,
-                      createdAt: m.created_at,
-                    })),
+                    messages: msgRecords.map(mapBackendMessageToChat),
                   }
                 }
                 return c

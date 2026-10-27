@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Alert, Box, Paper, Typography } from '@mui/material'
-import { useCases } from '../../cases/useCases'
+import { useCases } from '../../hooks'
 import MessageConversationList from './MessageConversationList'
 import MessageThread from './MessageThread'
 

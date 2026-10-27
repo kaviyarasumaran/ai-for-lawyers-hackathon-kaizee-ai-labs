@@ -18,7 +18,7 @@ import ChatSidebar from '../components/chat/ChatSidebar'
 import InviteMemberDialog from '../components/network/InviteMemberDialog'
 import ManageCaseAccessDialog from '../components/network/ManageCaseAccessDialog'
 import TeamMembersTable from '../components/network/TeamMembersTable'
-import { useCases } from '../cases/useCases'
+import { useCases } from '../hooks'
 
 function NetworkPage() {
   const {

@@ -4,14 +4,14 @@ import logging
 from pathlib import PurePosixPath
 from uuid import uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from pymongo.errors import PyMongoError
 
 from app import postgres
 from app.database import get_database
 from app.pipeline import process_knowledge_base_document
-from app.storage import StorageError, delete_file, storage_http_exception, upload_file
+from app.storage import StorageError, delete_file, download_file, storage_http_exception, upload_file
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/knowledge-base/documents", tags=["knowledge base"])
@@ -110,6 +110,31 @@ async def get_document(document_id: str) -> dict:
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found.")
     return serialize_document(document)
+
+
+@router.get("/{document_id}/file")
+async def get_document_file(document_id: str) -> Response:
+    try:
+        document = await get_documents_collection().find_one({"id": document_id})
+    except PyMongoError as exc:
+        logger.exception("Could not read Knowledge Base file %s", document_id)
+        raise HTTPException(status_code=503, detail="Document storage is unavailable.") from exc
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    path = document.get("path")
+    if not path:
+        raise HTTPException(status_code=404, detail="Document file path missing.")
+
+    content_type = document.get("type") or "application/pdf"
+    try:
+        content = await download_file(path)
+        return Response(content=content, media_type=content_type)
+    except StorageError as exc:
+        raise storage_http_exception(exc) from exc
+    except Exception as exc:
+        logger.warning("Could not download Knowledge Base file %s: %s", document_id, exc)
+        raise HTTPException(status_code=404, detail="Document file not found.") from exc
 
 
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)

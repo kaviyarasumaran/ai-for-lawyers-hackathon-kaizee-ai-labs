@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Box, Snackbar, Typography, useTheme } from '@mui/material'
+import { Alert, Box, Snackbar, useTheme } from '@mui/material'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import GavelOutlinedIcon from '@mui/icons-material/GavelOutlined'
 import ChatComposer from './ChatComposer'
 import ChatCameraDialog from './ChatCameraDialog'
 import ChatFilesDialog from './ChatFilesDialog'
@@ -9,7 +8,8 @@ import ChatHistoryPanel from './ChatHistoryPanel'
 import ChatHeader from './ChatHeader'
 import ChatMessages from './ChatMessages'
 import ChatSidebar from './ChatSidebar'
-import { useCases } from '../../cases/useCases'
+import ChatEmptyState from './ChatEmptyState'
+import { useCases } from '../../hooks'
 import { requestChatReply } from '../../api/chat'
 import { deleteChatAttachment, listChatAttachments, uploadChatAttachment } from '../../api/files'
 
@@ -292,7 +292,8 @@ function ChatLayout() {
         )
         .map(({ role, content }) => ({ role, content }))
 
-      const reply = await requestChatReply(
+      let currentSources = []
+      const res = await requestChatReply(
         [...history, { role: 'user', content: text, attachments: attachedFiles }],
         {
           chatId: responseConversationId,
@@ -305,15 +306,37 @@ function ChatLayout() {
                 id: assistantMsgId,
                 role: 'assistant',
                 content: partialReply,
+                sources: currentSources,
               },
+            })
+          },
+          onSources: (incomingSources) => {
+            currentSources = Array.isArray(incomingSources) ? incomingSources : []
+            setStreamingState((prev) => {
+              if (prev && prev.conversationId === responseConversationId) {
+                return {
+                  ...prev,
+                  message: {
+                    ...prev.message,
+                    sources: currentSources,
+                  },
+                }
+              }
+              return prev
             })
           },
         },
       )
+      const finalReply = typeof res === 'string' ? res : (res?.reply ?? '')
+      const finalSources = (res && typeof res === 'object' && Array.isArray(res.sources))
+        ? res.sources
+        : currentSources
+
       const assistantMessage = {
         id: assistantMsgId,
         role: 'assistant',
-        content: reply,
+        content: finalReply,
+        sources: finalSources,
       }
 
       if (isCaseChat) {
@@ -394,114 +417,12 @@ function ChatLayout() {
             }
           />
           {messages.length === 0 ? (
-            <Box
-              component="section"
-              aria-labelledby="welcome-title"
-              sx={{
-                width: 'min(100%, 900px)',
-                minHeight: 0,
-                flex: 1,
-                py: { xs: 3, md: 'clamp(24px, 5vh, 48px)' },
-                textAlign: 'center',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: { xs: 'center', md: 'flex-start' },
-                '@media (max-height:900px) and (min-width:601px)': { py: 1 },
-              }}
-            >
-              <Box
-                aria-hidden="true"
-                sx={{
-                  width: 54,
-                  height: 54,
-                  display: 'grid',
-                  placeItems: 'center',
-                  mx: 'auto',
-                  mb: { xs: 2, md: 1.5 },
-                  border: '1px solid',
-                  borderColor: isDark ? '#34483a' : '#dce9dd',
-                  borderRadius: '18px',
-                  color: 'primary.main',
-                  bgcolor: isDark ? '#243229' : '#eaf2e9',
-                  boxShadow: isDark ? '0 6px 18px rgba(0,0,0,.16)' : '0 6px 18px rgba(49,94,65,.06)',
-                }}
-              >
-                <GavelOutlinedIcon sx={{ fontSize: 31 }} />
-              </Box>
-              {currentCase && !currentCase.isDefault && (
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: { xs: 'flex-start', sm: 'center' },
-                    justifyContent: 'center',
-                    flexWrap: 'wrap',
-                    gap: 0.75,
-                    mb: 1.5,
-                  }}
-                >
-                  <Typography sx={{ color: 'primary.main', fontSize: 'caption.fontSize', fontWeight: 700 }}>
-                    {currentCase.matterType}
-                  </Typography>
-                  {currentCase.parties && (
-                    <Typography sx={{ color: 'text.secondary', fontSize: 'caption.fontSize' }}>
-                      · {currentCase.parties}
-                    </Typography>
-                  )}
-                </Box>
-              )}
-              <Typography
-                sx={{
-                  mb: 1.75,
-                  color: '#62836c',
-                  fontSize: 'caption.fontSize',
-                  fontWeight: 700,
-                  letterSpacing: 1.65,
-                  '@media (max-height:900px) and (min-width:601px)': { mb: 1.5 },
-                }}
-              >
-                YOUR LEGAL ASSISTANT
-              </Typography>
-              <Typography
-                component="h1"
-                id="welcome-title"
-                sx={{
-                  color: 'text.primary',
-                  fontFamily: 'Manrope, "DM Sans", sans-serif',
-                  fontSize: { xs: 'clamp(27px, 8vw, 34px)', md: 'clamp(28px, 3.2vw, 39px)' },
-                  fontWeight: 600,
-                  letterSpacing: '-1.7px',
-                  lineHeight: 1.2,
-                }}
-              >
-                A clearer path
-                <br />
-                <Box component="span" sx={{ color: isDark ? '#aac3af' : '#728578' }}>
-                  through legal questions.
-                </Box>
-              </Typography>
-              <Typography
-                sx={{
-                  maxWidth: 450,
-                  mx: 'auto',
-                  mt: { xs: 1.5, md: 1 },
-                  mb: { xs: 2.875, md: 2.25 },
-                  color: 'text.secondary',
-                  fontSize: 'body2.fontSize',
-                  lineHeight: 1.7,
-                  '@media (max-height:900px) and (min-width:601px)': {
-                    mt: 1,
-                    mb: 2.25,
-                  },
-                }}
-              >
-                {currentCase && !currentCase.isDefault && currentCase.summary
-                  ? currentCase.summary
-                  : 'Get a helpful starting point, understand your options, and feel more prepared for what comes next.'}
-              </Typography>
-            </Box>
+            <ChatEmptyState currentCase={currentCase} isDark={isDark} />
           ) : (
             <ChatMessages
               messages={messages}
+              caseId={routeCaseId}
+              chatId={conversationId}
               isAssistantTyping={isAssistantTyping}
               onBranch={
                 routeCaseId
@@ -537,6 +458,7 @@ function ChatLayout() {
         open={isFilesOpen}
         onClose={() => setIsFilesOpen(false)}
         files={chatFiles}
+        chatId={conversationId}
         onRemove={removeChatFile}
         onAddFiles={() => {
           setIsFilesOpen(false)

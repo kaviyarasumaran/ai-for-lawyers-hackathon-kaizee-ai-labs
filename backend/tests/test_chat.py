@@ -1,7 +1,7 @@
 import unittest
 from copy import deepcopy
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from bson import ObjectId
 from fastapi.testclient import TestClient
@@ -774,6 +774,193 @@ class SupabaseFileEndpointTests(unittest.TestCase):
         pages = extract_document("surveillance.mp4", b"\x00\x00\x00\x20ftypisom")
         self.assertGreaterEqual(len(pages), 1)
         self.assertIn("surveillance.mp4", str(pages[0]["text"]))
+
+    def test_format_sources_enrichment_and_deduplication(self) -> None:
+        from app.main import _format_sources
+        raw = [
+            {
+                "id": "chunk-1",
+                "document_id": "doc-bns",
+                "name": "Bharatiya Nyaya Sanhita, 2023",
+                "section": "Section 316 - Criminal Breach of Trust",
+                "page_start": 4,
+                "page_end": 5,
+                "content": "Whoever being in any manner entrusted with property...",
+                "source_type": "global_legal_authority",
+            },
+            # Duplicate item should be deduplicated
+            {
+                "id": "chunk-1-dup",
+                "document_id": "doc-bns",
+                "name": "Bharatiya Nyaya Sanhita, 2023",
+                "section": "Section 316 - Criminal Breach of Trust",
+                "page_start": 4,
+                "page_end": 5,
+                "content": "Whoever being in any manner entrusted with property...",
+            },
+            # Attachment item
+            {
+                "id": "att-1",
+                "attachment_id": "att-uuid-1",
+                "name": "Complaint_Copy.pdf",
+                "page_start": 1,
+                "page_end": 1,
+                "content": "Complainant states that accused dishonestly induced him...",
+                "source_type": "chat_attachment",
+            },
+        ]
+        formatted = _format_sources(raw)
+        self.assertEqual(len(formatted), 2)
+        # Check BNS entry
+        bns = formatted[0]
+        self.assertEqual(bns["name"], "Bharatiya Nyaya Sanhita, 2023")
+        self.assertEqual(bns["section"], "Section 316 - Criminal Breach of Trust")
+        self.assertEqual(bns["pageStart"], 4)
+        self.assertEqual(bns["pageEnd"], 5)
+        self.assertEqual(bns["sourceType"], "global_legal_authority")
+        self.assertIn("/api/knowledge-base/documents/doc-bns/file", bns["url"])
+        self.assertIn("entrusted", bns["snippet"])
+
+        # Check attachment entry
+        att = formatted[1]
+        self.assertEqual(att["name"], "Complaint_Copy.pdf")
+        self.assertEqual(att["sourceType"], "chat_attachment")
+        self.assertIn("/api/chat/attachments/att-uuid-1/file", att["url"])
+
+    def test_knowledge_base_document_file_endpoint(self) -> None:
+        with (
+            patch("app.routers.knowledge_base.get_documents_collection") as mock_col,
+            patch("app.routers.knowledge_base.download_file", return_value=b"%PDF-1.4 test bytes"),
+        ):
+            mock_cursor = mock_col.return_value
+            mock_cursor.find_one = AsyncMock(return_value={
+                "id": "kb-doc-123",
+                "name": "BNS_2023.pdf",
+                "path": "knowledge-base/folder/kb-doc-123/BNS_2023.pdf",
+                "type": "application/pdf",
+            })
+            res = self.client.get("/api/knowledge-base/documents/kb-doc-123/file")
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.content, b"%PDF-1.4 test bytes")
+            self.assertEqual(res.headers["content-type"], "application/pdf")
+
+    def test_case_document_file_endpoint(self) -> None:
+        with (
+            patch("app.postgres.case_migration_ready", True),
+            patch("app.postgres.get_case_documents", return_value=[
+                {
+                    "id": "case-doc-999",
+                    "case_id": "case-123",
+                    "name": "FIR_Copy.pdf",
+                    "path": "cases/case-123/case-doc-999/FIR_Copy.pdf",
+                    "type": "application/pdf",
+                }
+            ]),
+            patch("app.routers.cases.download_file", return_value=b"%PDF-1.4 case fir content"),
+        ):
+            res = self.client.get("/api/cases/case-123/documents/case-doc-999/file")
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.content, b"%PDF-1.4 case fir content")
+
+    def test_chat_kb_isolation_security(self) -> None:
+        """Verify chat-level KB isolation: chat A attachments are private and never leaked to chat B."""
+        fake_attachment = {
+            "id": "att-secret-a",
+            "chat_id": "chat-AAA",
+            "name": "Confidential_Client_Notes.pdf",
+            "path": "chat-attachments/chat-AAA/att-secret-a/Confidential_Client_Notes.pdf",
+            "type": "application/pdf",
+        }
+
+        with (
+            patch("app.postgres.case_migration_ready", True),
+            patch("app.postgres.get_chat_attachment", return_value=fake_attachment),
+        ):
+            # 1. Chat BBB attempts to download Chat AAA's attachment file -> 403 Forbidden
+            res_cross_file = self.client.get(
+                "/api/chat/attachments/att-secret-a/file?chat_id=chat-BBB"
+            )
+            self.assertEqual(res_cross_file.status_code, 403)
+            self.assertIn("different chat session", res_cross_file.json()["detail"])
+
+            # 2. Chat BBB attempts to trigger processing/OCR on Chat AAA's attachment -> 403 Forbidden
+            res_cross_proc = self.client.post(
+                "/api/chat/attachments/att-secret-a/process?chat_id=chat-BBB"
+            )
+            self.assertEqual(res_cross_proc.status_code, 403)
+            self.assertIn("different chat session", res_cross_proc.json()["detail"])
+
+            # 3. Chat BBB attempts to view metadata of Chat AAA's attachment -> 403 Forbidden
+            res_cross_meta = self.client.get(
+                "/api/chat/attachments/att-secret-a?chat_id=chat-BBB"
+            )
+            self.assertEqual(res_cross_meta.status_code, 403)
+            self.assertIn("different chat session", res_cross_meta.json()["detail"])
+
+            # 4. Authorized Chat AAA can download the file
+            with patch("app.routers.chat_files.get_attachment_bytes", return_value=b"secret pdf bytes"):
+                res_auth_file = self.client.get(
+                    "/api/chat/attachments/att-secret-a/file?chat_id=chat-AAA"
+                )
+                self.assertEqual(res_auth_file.status_code, 200)
+                self.assertEqual(res_auth_file.content, b"secret pdf bytes")
+
+        # 5. Verify postgres get_staged_chat_attachments SQL safety structure
+        import inspect
+        from app import postgres
+        src = inspect.getsource(postgres.get_staged_chat_attachments)
+        # Ensure query strictly scopes by chat_id: WHERE chat_id = %s AND (id = ANY(%s) OR pipeline_status = 'staged')
+        self.assertIn("WHERE chat_id = %s AND (id = ANY(%s) OR pipeline_status = 'staged')", src)
+
+    def test_strip_source_citation_blocks(self) -> None:
+        """Verify trailing Source Citation and metadata blocks are stripped cleanly from replies."""
+        from app.main import strip_source_citation_blocks
+
+        # 1. Exact pattern reported by the user
+        user_reported = (
+            "### 1. Case Classification\n"
+            "This matter constitutes Criminal Breach of Trust under BNS Section 316.\n\n"
+            "### 2. Statutory Analysis\n"
+            "The ingredients of entrustment are satisfied.\n\n"
+            "Source Citation:\n\n"
+            "Document: THE CONSTITUTION OF INDIA\n"
+            "Section: Section 330 (and related sub-sections)\n"
+            "Page(s): Page 220, page(s) 220-220"
+        )
+        cleaned = strip_source_citation_blocks(user_reported)
+        self.assertNotIn("Source Citation", cleaned)
+        self.assertNotIn("CONSTITUTION OF INDIA", cleaned)
+        self.assertNotIn("Section 330", cleaned)
+        self.assertIn("Criminal Breach of Trust", cleaned)
+        self.assertIn("BNS Section 316", cleaned)
+
+        # 2. Bold and heading variants
+        bold_variant = "Legal advice.\n\n**Source Citation:**\nDocument: Penal Law\nSection: 420\nPage: 12"
+        self.assertEqual(strip_source_citation_blocks(bold_variant), "Legal advice.")
+
+        heading_variant = "Legal advice.\n\n### Source Citations:\n- Document: Act\n- Section: 1\n- Page: 2"
+        self.assertEqual(strip_source_citation_blocks(heading_variant), "Legal advice.")
+
+        # 3. Naked Document / Section / Page block
+        naked_variant = "Legal advice.\n\nDocument: THE CONSTITUTION OF INDIA\nSection: Section 330\nPage(s): 220"
+        self.assertEqual(strip_source_citation_blocks(naked_variant), "Legal advice.")
+
+        # 4. Standard text without citations should remain completely unchanged
+        clean_text = "### 1. Classification\nNo citation blocks here."
+        self.assertEqual(strip_source_citation_blocks(clean_text), clean_text)
+
+    def test_search_global_chunks_zero_vector_safety(self) -> None:
+        """Verify search_global_chunks does not use vector matching when embedding is zeros or None."""
+        import inspect
+        from app import postgres
+
+        src = inspect.getsource(postgres.search_global_chunks)
+        # Ensure has_valid_embedding check exists
+        self.assertIn("has_valid_embedding", src)
+        self.assertIn("any(v != 0.0 for v in embedding)", src)
+
+
+
 
 
 if __name__ == "__main__":

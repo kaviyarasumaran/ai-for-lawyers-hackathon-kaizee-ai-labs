@@ -4,7 +4,7 @@ import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import ChatSidebar from '../components/chat/ChatSidebar'
-import { useThemeStore } from '../theme/ThemeStoreContext'
+import { useThemeStore } from '../hooks'
 
 function SettingsPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
