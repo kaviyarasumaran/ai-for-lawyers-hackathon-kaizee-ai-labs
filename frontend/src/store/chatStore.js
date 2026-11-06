@@ -103,6 +103,9 @@ export function mapBackendMessageToChat(m) {
     id: m.id,
     role: m.role,
     content: m.content,
+    attachments: Array.isArray(m.attachments)
+      ? m.attachments
+      : (Array.isArray(m.metadata?.attachments) ? m.metadata.attachments : []),
     sources: Array.isArray(m.citations) && m.citations.length > 0
       ? m.citations.map((c) => ({
           id: c.source_id || c.id,

@@ -65,8 +65,9 @@ function ChatComposer({
     if (isListening) {
       stopTranscription()
     }
+    const filesToSend = stagedFiles ? [...stagedFiles] : []
     updateDraft('')
-    onSend(message)
+    onSend(message, filesToSend)
   }
 
   function handleKeyDown(event) {
@@ -85,7 +86,7 @@ function ChatComposer({
       }}
       sx={{
         display: 'flex',
-        width: 'min(100%, 820px)',
+        width: 'min(100%, 1120px)',
         flexDirection: 'column',
         alignItems: 'center',
         mt: 'auto',
@@ -134,7 +135,7 @@ function ChatComposer({
               disableUnderline: true,
               sx: {
                 color: 'text.primary',
-                fontSize: 'body2.fontSize',
+                fontSize: '0.9375rem',
                 lineHeight: 1.6,
                 '& textarea::placeholder': { color: isDark ? '#87948a' : '#abb0aa', opacity: 1 },
                 '& textarea:focus-visible': { outline: 'none' },
@@ -182,7 +183,7 @@ function ChatComposer({
                     mr: 0.75,
                     height: 28,
                     fontSize: 'caption.fontSize',
-                    fontWeight: 600,
+                    fontWeight: 400,
                     borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d5e2d5',
                     bgcolor: isDark ? 'rgba(255,255,255,0.04)' : '#f4f8f4',
                     cursor: 'pointer',

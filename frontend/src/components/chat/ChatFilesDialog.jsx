@@ -180,7 +180,7 @@ function ChatFilesDialog({ open, onClose, files = [], chatId, onRemove, onAddFil
         />
 
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-          <Typography sx={{ fontSize: 'caption.fontSize', color: 'text.secondary', fontWeight: 600 }}>
+          <Typography sx={{ fontSize: 'caption.fontSize', color: 'text.secondary', fontWeight: 400 }}>
             Showing {filteredAndSortedFiles.length} of {files.length} file{files.length === 1 ? '' : 's'}
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
@@ -193,7 +193,7 @@ function ChatFilesDialog({ open, onClose, files = [], chatId, onRemove, onAddFil
               disableUnderline
               sx={{
                 fontSize: 'caption.fontSize',
-                fontWeight: 600,
+                fontWeight: 400,
                 color: 'text.secondary',
                 '& .MuiSelect-select': { py: 0.25, pr: '20px !important' },
               }}
@@ -225,7 +225,7 @@ function ChatFilesDialog({ open, onClose, files = [], chatId, onRemove, onAddFil
             minWidth: 'auto',
             px: 1.5,
             fontSize: 'caption.fontSize',
-            fontWeight: 600,
+            fontWeight: 500,
             textTransform: 'none',
           },
           '& .MuiTabs-indicator': { height: 2, borderRadius: 2 },
@@ -251,7 +251,7 @@ function ChatFilesDialog({ open, onClose, files = [], chatId, onRemove, onAddFil
                     height: 18,
                     minWidth: 18,
                     fontSize: '0.68rem',
-                    fontWeight: 700,
+                    fontWeight: 500,
                     bgcolor: category === val
                       ? (isDark ? 'primary.main' : '#e2ede3')
                       : (isDark ? 'rgba(255,255,255,0.06)' : '#edeeea'),
@@ -270,7 +270,7 @@ function ChatFilesDialog({ open, onClose, files = [], chatId, onRemove, onAddFil
         {filteredAndSortedFiles.length === 0 ? (
           <Box sx={{ display: 'flex', minHeight: 240, alignItems: 'center', justifyContent: 'center', flexDirection: 'column', textAlign: 'center', p: 3 }}>
             <AttachFileOutlinedIcon sx={{ mb: 1, color: 'text.secondary', fontSize: 36, opacity: 0.6 }} />
-            <Typography sx={{ color: 'text.primary', fontSize: 'body2.fontSize', fontWeight: 600 }}>
+            <Typography sx={{ color: 'text.primary', fontSize: 'body2.fontSize', fontWeight: 500 }}>
               {files.length === 0
                 ? 'No files in this conversation yet'
                 : searchQuery

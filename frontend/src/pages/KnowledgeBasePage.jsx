@@ -3,7 +3,6 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   IconButton,
   Pagination,
   Paper,
@@ -12,16 +11,12 @@ import {
 } from '@mui/material'
 import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined'
 import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded'
-import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import CreateNewFolderOutlinedIcon from '@mui/icons-material/CreateNewFolderOutlined'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
-import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined'
-import ChatSidebar from '../components/chat/ChatSidebar'
 import { useKnowledgeBase, useKbUploader } from '../hooks'
-import { useNavigate } from '@tanstack/react-router'
 import { DOCUMENTS_PER_PAGE } from '../utils/kbExtraction'
 import {
   KbDocumentRow,
@@ -30,10 +25,10 @@ import {
   KbMetricCard,
   KbSidebarFolders,
   KbTableHeader,
+  KnowledgeBaseProvider,
 } from '../components/knowledge-base'
 
 function KnowledgeBasePage() {
-  const navigate = useNavigate()
   const {
     folders,
     documents,
@@ -45,7 +40,6 @@ function KnowledgeBasePage() {
     updateDocument,
     removeDocument,
   } = useKnowledgeBase()
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [selectedFolderId, setSelectedFolderId] = useState(null)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
   const [folderName, setFolderName] = useState('')
@@ -172,85 +166,34 @@ function KnowledgeBasePage() {
   }
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: '#fbfbf9' }}>
-      <ChatSidebar
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-        onNewChat={() => {
-          setIsSidebarOpen(false)
-          navigate({ to: '/' })
-        }}
-      />
+    <Box sx={{ width: '100%', maxWidth: 1320, mx: 'auto', pt: { xs: 1, md: 2 }, pb: 6 }}>
       <Box
-        component="main"
         sx={{
           display: 'flex',
-          minWidth: 0,
-          flex: 1,
-          flexDirection: 'column',
-          px: { xs: 2, sm: 3, lg: 5 },
-          pb: 4,
+          alignItems: { xs: 'flex-start', sm: 'center' },
+          justifyContent: 'space-between',
+          gap: 2,
+          flexDirection: { xs: 'column', sm: 'row' },
+          mb: 3,
         }}
       >
-        <Box
-          component="header"
-          sx={{
-            display: 'flex',
-            minHeight: { xs: 62, md: 73 },
-            alignItems: 'center',
-            gap: 1.5,
-            borderBottom: '1px solid #efefeb',
-          }}
-        >
-          <IconButton
-            aria-label="Open navigation"
-            onClick={() => setIsSidebarOpen(true)}
-            sx={{ display: { xs: 'inline-flex', md: 'none' }, ml: -0.75, color: '#777f78' }}
-          >
-            <MenuRoundedIcon />
-          </IconButton>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography sx={{ color: '#303632', fontSize: 'body2.fontSize', fontWeight: 700 }}>Knowledge Base</Typography>
-            <ChevronRightRoundedIcon sx={{ color: '#bbc0b9', fontSize: 16 }} />
-            <Typography sx={{ color: '#919891', fontSize: 'body2.fontSize' }}>
-              {activeFolder?.name ?? 'All documents'}
-            </Typography>
-          </Box>
-          <Chip
-            icon={<CheckCircleOutlineRoundedIcon />}
-            label="Public file links"
-            size="small"
-            variant="outlined"
+        <Box>
+          <Typography
+            component="h1"
             sx={{
-              height: 27,
-              ml: 'auto',
-              borderColor: '#e4eae2',
-              color: '#64816a',
-              fontSize: 'caption.fontSize',
-              '& .MuiChip-icon': { fontSize: 14, color: 'inherit' },
+              fontSize: { xs: '1.35rem', sm: '1.625rem' },
+              fontWeight: 700,
+              fontFamily: 'Manrope, sans-serif',
+              color: 'text.primary',
+              letterSpacing: '-0.5px',
             }}
-          />
+          >
+            Knowledge Base
+          </Typography>
+          <Typography sx={{ mt: 0.5, color: 'text.secondary', fontSize: '0.875rem', lineHeight: 1.6 }}>
+            Organize documents and extract content via OCR, vector embeddings, and full-text indexing for AI search.
+          </Typography>
         </Box>
-
-        <Box sx={{ width: '100%', maxWidth: 1240, mx: 'auto', pt: { xs: 3, md: 4 } }}>
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: { xs: 'flex-start', sm: 'center' },
-              justifyContent: 'space-between',
-              gap: 2,
-              flexDirection: { xs: 'column', sm: 'row' },
-              mb: 3,
-            }}
-          >
-            <Box>
-              <Typography component="h1" sx={{ color: '#27312b', fontFamily: 'Manrope, sans-serif', fontSize: { xs: 25, md: 30 }, fontWeight: 700, letterSpacing: '-1px' }}>
-                Knowledge Base
-              </Typography>
-              <Typography sx={{ mt: 0.75, color: '#858c85', fontSize: 'body2.fontSize' }}>
-                Organize documents and extract content via OCR, vector embeddings, and full-text indexing for AI search.
-              </Typography>
-            </Box>
             <Box sx={{ display: 'flex', gap: 1, width: { xs: '100%', sm: 'auto' } }}>
               <Button
                 onClick={() => setFolderDialogOpen(true)}
@@ -452,8 +395,6 @@ function KnowledgeBasePage() {
               </Box>
             </Paper>
           </Box>
-        </Box>
-      </Box>
 
       <KbFolderDialog
         open={folderDialogOpen}
@@ -479,4 +420,10 @@ function KnowledgeBasePage() {
   )
 }
 
-export default KnowledgeBasePage
+export default function KnowledgeBasePageWrapper(props) {
+  return (
+    <KnowledgeBaseProvider>
+      <KnowledgeBasePage {...props} />
+    </KnowledgeBaseProvider>
+  )
+}

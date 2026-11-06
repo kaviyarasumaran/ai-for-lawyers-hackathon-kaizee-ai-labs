@@ -152,6 +152,9 @@ class GeneralChatRetrievalTests(unittest.TestCase):
             self.assertEqual(data["chatId"], "chat-general-789")
             self.assertEqual(len(data["sources"]), 1)
             self.assertEqual(data["sources"][0]["name"], "lease_agreement.png")
+            self.assertEqual(data["sources"][0]["sourceType"], "chat_attachment")
+            # Unused General KB authorities are not displayed
+            self.assertFalse(any(s.get("sourceType") == "global_legal_authority" for s in data["sources"]))
             # Verify the prompt contained the retrieved chat KB excerpt
             messages_sent = FakeAsyncClient.request_json["messages"]
             system_contexts = [m["content"] for m in messages_sent if m["role"] == "system"]
@@ -403,6 +406,92 @@ class GeneralChatRetrievalTests(unittest.TestCase):
             self.assertIn("Criminal Case Document - Mock Draft.pdf", combined_system)
             self.assertIn("STATE OF MAHARASHTRA VS. RAJESH SHARMA", combined_system)
             self.assertIn("Under NO circumstances should you ask the user to upload or attach the document", combined_system)
+
+    def test_uploaded_file_embedded_and_retrieved_chunks_sent_to_main_model(self) -> None:
+        """Verifies uploaded file is chunked & stored with embeddings, retrieved via semantic vector search, and only retrieved chunks are sent to main model."""
+        retrieved_chunk = {
+            "chunk_id": "chunk-retrieved-999",
+            "attachment_id": "att-proc-456",
+            "name": "Commercial_Lease_Agreement.pdf",
+            "page_start": 4,
+            "page_end": 4,
+            "content": "Clause 14: Maintenance and Repair Obligation rests exclusively with the Tenant for all interior electrical fixtures.",
+        }
+
+        class FakeAsyncClient:
+            request_json = None
+
+            def __init__(self, *args, **kwargs) -> None:
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def post(self, _url, **kwargs):
+                FakeAsyncClient.request_json = kwargs.get("json")
+                return unittest.mock.MagicMock(
+                    status_code=200,
+                    raise_for_status=lambda: None,
+                    json=lambda: {
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": "According to Clause 14 of the Commercial Lease Agreement, maintenance and repair obligations for interior fixtures rests with the tenant."
+                                }
+                            }
+                        ]
+                    },
+                )
+
+        with (
+            patch.object(main.settings, "llm_api_base_url", "https://llm.example/v1/"),
+            patch.object(main.settings, "llm_api_key", None),
+            patch.object(main.settings, "llm_model", "example-model"),
+            patch.object(main.settings, "embedding_api_base_url", "https://embed.example/v1/"),
+            patch.object(main.settings, "embedding_model", "example-embed"),
+            patch.object(main.httpx, "AsyncClient", FakeAsyncClient),
+            patch("app.main.create_embeddings", AsyncMock(return_value=[[0.0] * 768])),
+            patch("app.postgres.search_chat_chunks", return_value=[retrieved_chunk]) as mock_search_chunks,
+            patch("app.postgres.create_conversation", return_value={}),
+            patch("app.postgres.add_message", return_value={}),
+            patch.object(main.postgres, "case_migration_ready", True),
+        ):
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "chatId": "chat-lease-test",
+                    "attachment_ids": ["att-proc-456"],
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": "Who is responsible for maintenance under Clause 14?",
+                            "attachments": [
+                                {
+                                    "id": "att-proc-456",
+                                    "name": "Commercial_Lease_Agreement.pdf",
+                                    "pipeline_status": "completed",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            mock_search_chunks.assert_called_once()
+            # Verify the main model prompt only contains the semantically retrieved chunk
+            sent_system = "\n".join(
+                m["content"] for m in FakeAsyncClient.request_json["messages"] if m["role"] == "system"
+            )
+            self.assertIn("Clause 14: Maintenance and Repair Obligation", sent_system)
+            self.assertIn("Relevant Excerpts Retrieved from Attached File(s)", sent_system)
+
+            data = response.json()
+            self.assertTrue(len(data["sources"]) >= 1)
+            self.assertEqual(data["sources"][0]["name"], "Commercial_Lease_Agreement.pdf")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,2 @@
+ALTER TABLE cases ADD COLUMN IF NOT EXISTS cause_list JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE cases ADD COLUMN IF NOT EXISTS precedents JSONB DEFAULT '[]'::jsonb;

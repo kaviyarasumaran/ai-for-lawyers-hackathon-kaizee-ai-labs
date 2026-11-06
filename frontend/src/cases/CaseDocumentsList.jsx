@@ -1,9 +1,14 @@
-import { Box, Button, Chip, Paper, Typography } from '@mui/material'
+import { Box, Button, Chip, IconButton, Paper, Typography } from '@mui/material'
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import { formatBytes } from '../utils/formatters'
 
-export default function CaseDocumentsList({ documents = [], documentPipelineById = new Map() }) {
+export default function CaseDocumentsList({
+  documents = [],
+  documentPipelineById = new Map(),
+  onRemoveDocument,
+}) {
   return (
     <Paper
       component="section"
@@ -55,17 +60,29 @@ export default function CaseDocumentsList({ documents = [], documentPipelineById
                     : ''}
                 </Typography>
               </Box>
-              <Button
-                component="a"
-                href={file.url}
-                target="_blank"
-                rel="noreferrer"
-                download={file.name}
-                endIcon={<OpenInNewRoundedIcon />}
-                sx={{ flexShrink: 0, fontSize: 'caption.fontSize' }}
-              >
-                Open
-              </Button>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                <Button
+                  component="a"
+                  href={file.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  download={file.name}
+                  endIcon={<OpenInNewRoundedIcon />}
+                  sx={{ fontSize: 'caption.fontSize' }}
+                >
+                  Open
+                </Button>
+                {onRemoveDocument && (
+                  <IconButton
+                    aria-label={`Delete ${file.name}`}
+                    size="small"
+                    onClick={() => onRemoveDocument(file.id)}
+                    sx={{ color: '#858c85', '&:hover': { color: '#d32f2f' } }}
+                  >
+                    <DeleteOutlineRoundedIcon sx={{ fontSize: 18 }} />
+                  </IconButton>
+                )}
+              </Box>
             </Box>
           ))}
         </Box>

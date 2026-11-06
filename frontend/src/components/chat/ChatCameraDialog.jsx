@@ -151,13 +151,13 @@ function ChatCameraDialog({ open, onClose, onCapture }) {
 
   return (
     <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 6, color: '#303832', fontSize: 16, fontWeight: 700 }}>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 6, color: 'text.primary', fontSize: 16, fontWeight: 600 }}>
         <CameraAltOutlinedIcon sx={{ color: 'primary.main', fontSize: 19 }} />
         Capture for this chat
         <IconButton
           aria-label="Close camera"
           onClick={handleClose}
-          sx={{ position: 'absolute', right: 12, top: 12, color: '#858c85' }}
+          sx={{ position: 'absolute', right: 12, top: 12, color: 'text.secondary' }}
         >
           <CloseRoundedIcon />
         </IconButton>
@@ -219,7 +219,7 @@ function ChatCameraDialog({ open, onClose, onCapture }) {
         {isRecording && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#b44843' }}>
             <FiberManualRecordRoundedIcon sx={{ fontSize: 11 }} />
-            <Typography sx={{ fontSize: 'caption.fontSize', fontWeight: 700 }}>Recording</Typography>
+            <Typography sx={{ fontSize: 'caption.fontSize', fontWeight: 500 }}>Recording</Typography>
           </Box>
         )}
       </DialogActions>

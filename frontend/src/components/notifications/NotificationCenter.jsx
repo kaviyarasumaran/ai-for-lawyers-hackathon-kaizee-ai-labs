@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Box, Chip, Paper, Tab, Tabs, Typography } from '@mui/material'
 import AlternateEmailOutlinedIcon from '@mui/icons-material/AlternateEmailOutlined'
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined'
@@ -121,12 +121,12 @@ function NotificationList({ notifications }) {
           </Box>
           <Box sx={{ minWidth: 0, flex: 1 }}>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.75 }}>
-              <Typography sx={{ color: 'text.primary', fontSize: 'body2.fontSize', fontWeight: 600 }}>
+              <Typography sx={{ color: 'text.primary', fontSize: '0.9375rem', fontWeight: 600 }}>
                 {notification.title}
               </Typography>
               <Chip label={notification.status} size="small" sx={{ height: 21, fontSize: 'caption.fontSize' }} />
             </Box>
-            <Typography sx={{ mt: 0.5, color: 'text.secondary', fontSize: 'body2.fontSize', lineHeight: 1.6 }}>
+            <Typography sx={{ mt: 0.5, color: 'text.secondary', fontSize: '0.875rem', lineHeight: 1.6 }}>
               {notification.description}
             </Typography>
             <Typography sx={{ mt: 0.75, color: 'text.secondary', fontSize: 'caption.fontSize' }}>
@@ -141,7 +141,24 @@ function NotificationList({ notifications }) {
 
 function NotificationCenter() {
   const [activeTab, setActiveTab] = useState('messages')
-  const activeNotifications = notificationsByTab[activeTab]
+  const [dynamicTasks, setDynamicTasks] = useState([])
+
+  useEffect(() => {
+    function loadNotifs() {
+      try {
+        const stored = JSON.parse(localStorage.getItem('kaizee_listing_notifications') || '[]')
+        setDynamicTasks(stored)
+      } catch {
+        // ignore
+      }
+    }
+    loadNotifs()
+    window.addEventListener('kaizee-notification', loadNotifs)
+    return () => window.removeEventListener('kaizee-notification', loadNotifs)
+  }, [])
+
+  const baseNotifications = notificationsByTab[activeTab] || []
+  const activeNotifications = activeTab === 'tasks' ? [...dynamicTasks, ...baseNotifications] : baseNotifications
 
   return (
     <Box>
@@ -163,7 +180,7 @@ function NotificationCenter() {
           variant="scrollable"
           sx={{
             px: { xs: 1, sm: 1.5 },
-            '& .MuiTab-root': { minHeight: 54, minWidth: 'auto', px: { xs: 1.25, sm: 2 }, fontSize: 'body2.fontSize' },
+            '& .MuiTab-root': { minHeight: 54, minWidth: 'auto', px: { xs: 1.25, sm: 2 }, fontSize: '0.875rem', fontWeight: 600 },
           }}
         >
           {notificationTabs.map(({ id, label, icon: Icon }) => (

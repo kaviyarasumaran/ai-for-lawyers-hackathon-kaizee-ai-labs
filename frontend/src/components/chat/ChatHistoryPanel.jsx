@@ -15,7 +15,7 @@ import ChatOutlinedIcon from '@mui/icons-material/ChatOutlined'
 import { caseworkTools } from '../../casework-tools/tools'
 import ChatHistoryRow from './ChatHistoryRow'
 
-const panelWidth = 256
+const panelWidth = 268
 
 function ChatHistoryContent({
   chats,
@@ -30,6 +30,7 @@ function ChatHistoryContent({
   showChatActions,
   isCollapsed,
   onClose,
+  isCaseChat = false,
 }) {
   const isDark = useTheme().palette.mode === 'dark'
   const sortedChats = chats
@@ -60,7 +61,7 @@ function ChatHistoryContent({
           showActions={showChatActions}
         />
         {children.length > 0 && (
-          <Box sx={{ ml: 1.5, pl: 0.75, borderLeft: `1px solid ${isDark ? '#303a34' : '#e3e8e1'}` }}>
+          <Box sx={{ ml: 1.5, pl: 0.75, borderLeft: '1px solid', borderColor: 'divider' }}>
             {children.map((child) => renderTree(child))}
           </Box>
         )}
@@ -80,6 +81,7 @@ function ChatHistoryContent({
         width: isCollapsed ? 0 : panelWidth,
         height: '100%',
         flexDirection: 'column',
+        borderLeft: '1px solid',
         borderRight: '1px solid',
         borderColor: 'divider',
         bgcolor: 'background.paper',
@@ -98,14 +100,14 @@ function ChatHistoryContent({
               }}
               startIcon={<AddRoundedIcon />}
               sx={{
-                minHeight: 38,
+                minHeight: 40,
                 justifyContent: 'flex-start',
                 border: '1px solid',
                 borderColor: 'divider',
                 borderRadius: 1.75,
                 bgcolor: 'background.default',
                 color: 'text.primary',
-                fontSize: 'body2.fontSize',
+                fontSize: '0.875rem',
                 '& .MuiButton-startIcon': { color: 'primary.main' },
                 '&:hover': { borderColor: isDark ? '#526858' : '#b9cdbf', bgcolor: isDark ? '#232f27' : '#fbfdfb' },
               }}
@@ -117,73 +119,76 @@ function ChatHistoryContent({
       )}
       {!isCollapsed && (
         <Box sx={{ minHeight: 0, flex: 1, overflowY: 'auto', px: 1.25, pb: 1.5 }}>
-        <Box sx={{ py: 1.25 }}>
-          <Typography
-            component={Link}
-            to="/casework-tools"
-            onClick={onClose}
-            sx={{
-              display: 'block',
-              px: 0.75,
-              py: 0.75,
-              color: 'text.secondary',
-              fontSize: 'caption.fontSize',
-              fontWeight: 700,
-              letterSpacing: 0.9,
-              textDecoration: 'none',
-              '&:hover': { color: 'primary.main' },
-            }}
-          >
-            CASEWORK TOOLS
-          </Typography>
-          <List disablePadding>
-            {caseworkTools.map((feature) => {
-              const FeatureIcon = feature.icon
-              return (
-                <ListItemButton
-                  key={feature.id}
-                  component={Link}
-                  to={feature.path}
-                  onClick={onClose}
-                  sx={{
-                    minHeight: 34,
-                    gap: 1,
-                    px: 0.875,
-                    py: 0.5,
-                    borderRadius: 1.5,
-                    color: '#566359',
-                    '&.active': {
-                      color: isDark ? '#a9d0b2' : '#315c43',
-                      bgcolor: isDark ? '#293a2f' : '#e9f0e9',
-                    },
-                    '&:hover': {
-                      bgcolor: isDark ? '#26332b' : '#edf3ec',
-                      color: isDark ? '#a9d0b2' : '#315c43',
-                    },
-                  }}
-                >
-                  <ListItemIcon
+        {isCaseChat && (
+          <Box sx={{ py: 1.25 }}>
+            <Typography
+              component={Link}
+              to="/casework-tools"
+              onClick={onClose}
+              sx={{
+                display: 'block',
+                px: 0.75,
+                py: 0.75,
+                color: 'text.secondary',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                letterSpacing: 1.05,
+                textDecoration: 'none',
+                '&:hover': { color: 'primary.main' },
+              }}
+            >
+              CASEWORK TOOLS
+            </Typography>
+            <List disablePadding>
+              {caseworkTools.map((feature) => {
+                const FeatureIcon = feature.icon
+                return (
+                  <ListItemButton
+                    key={feature.id}
+                    component={Link}
+                    to={feature.path}
+                    onClick={onClose}
                     sx={{
-                      minWidth: 20,
-                      color: 'inherit',
-                      '& .MuiSvgIcon-root': { fontSize: 16 },
+                      minHeight: 38,
+                      gap: 1,
+                      px: 0.875,
+                      py: 0.5,
+                      borderRadius: 1.5,
+                      color: '#566359',
+                      '&.active': {
+                        color: isDark ? '#a9d0b2' : '#315c43',
+                        bgcolor: isDark ? '#293a2f' : '#e9f0e9',
+                      },
+                      '&:hover': {
+                        bgcolor: isDark ? '#26332b' : '#edf3ec',
+                        color: isDark ? '#a9d0b2' : '#315c43',
+                      },
                     }}
                   >
-                    <FeatureIcon />
-                  </ListItemIcon>
-                  <Typography sx={{ fontSize: 'caption.fontSize', fontWeight: 600 }}>
-                    {feature.title}
-                  </Typography>
-                </ListItemButton>
-              )
-            })}
-          </List>
-        </Box>
+                    <ListItemIcon
+                      sx={{
+                        minWidth: 22,
+                        color: 'inherit',
+                        '& .MuiSvgIcon-root': { fontSize: 18 },
+                      }}
+                    >
+                      <FeatureIcon />
+                    </ListItemIcon>
+                    <Typography sx={{ fontSize: '0.875rem', fontWeight: 400 }}>
+                      {feature.title}
+                    </Typography>
+                  </ListItemButton>
+                )
+              })}
+            </List>
+            <Divider sx={{ mt: 1.5, borderColor: 'divider' }} />
+          </Box>
+        )}
         {pinnedChats.length > 0 && (
           <>
             <Divider sx={{ borderColor: 'divider' }} />
             <Box sx={{ mb: 2 }}>
-              <Typography sx={{ px: 0.75, py: 0.75, color: 'text.secondary', fontSize: 'caption.fontSize', fontWeight: 700, letterSpacing: 0.9 }}>
+              <Typography sx={{ px: 0.75, py: 0.75, color: 'text.secondary', fontSize: '0.75rem', fontWeight: 600, letterSpacing: 1.05 }}>
                 PINNED
               </Typography>
               <List disablePadding>
@@ -206,15 +211,15 @@ function ChatHistoryContent({
         {pinnedChats.length > 0 && <Divider sx={{ borderColor: 'divider' }} />}
         <Box sx={{ pt: 1.25 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 0.75, py: 0.75 }}>
-            <ChatOutlinedIcon sx={{ color: 'text.secondary', fontSize: 15 }} />
-            <Typography sx={{ color: 'text.secondary', fontSize: 'caption.fontSize', fontWeight: 700, letterSpacing: 0.9 }}>
+            <ChatOutlinedIcon sx={{ color: 'text.secondary', fontSize: 16 }} />
+            <Typography sx={{ color: 'text.secondary', fontSize: '0.75rem', fontWeight: 600, letterSpacing: 1.05 }}>
               {chatListTitle}
             </Typography>
           </Box>
           {roots.length ? (
             <List disablePadding>{roots.map((chat) => renderTree(chat))}</List>
           ) : (
-            <Typography sx={{ px: 0.75, py: 0.5, color: 'text.secondary', fontSize: 'caption.fontSize' }}>
+            <Typography sx={{ px: 0.75, py: 0.5, color: 'text.secondary', fontSize: '0.875rem' }}>
               {emptyMessage}
             </Typography>
           )}
@@ -239,6 +244,7 @@ function ChatHistoryPanel({
   isCollapsed,
   isOpen,
   onClose,
+  isCaseChat = false,
 }) {
   const contentProps = {
     chats,
@@ -252,6 +258,7 @@ function ChatHistoryPanel({
     emptyMessage,
     showChatActions,
     onClose,
+    isCaseChat,
   }
 
   return (
@@ -274,7 +281,12 @@ function ChatHistoryPanel({
         onClose={onClose}
         sx={{
           display: { xs: 'block', md: 'none' },
-          '& .MuiDrawer-paper': { width: panelWidth, maxWidth: '86vw', border: 0 },
+          '& .MuiDrawer-paper': {
+            width: panelWidth,
+            maxWidth: '86vw',
+            borderLeft: '1px solid',
+            borderColor: 'divider',
+          },
         }}
       >
         <ChatHistoryContent {...contentProps} isCollapsed={false} />

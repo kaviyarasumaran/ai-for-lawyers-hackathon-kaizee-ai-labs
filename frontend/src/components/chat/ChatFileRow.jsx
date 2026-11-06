@@ -91,7 +91,7 @@ export default function ChatFileRow({ file, chatId, onRemove, isDark }) {
         {/* File Information */}
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-            <Typography noWrap sx={{ fontSize: 'body2.fontSize', fontWeight: 600, color: 'text.primary' }}>
+            <Typography noWrap sx={{ fontSize: 'body2.fontSize', fontWeight: 400, color: 'text.primary' }}>
               {file.name}
             </Typography>
           </Box>
@@ -148,7 +148,7 @@ export default function ChatFileRow({ file, chatId, onRemove, isDark }) {
             <Tooltip title={`Delete ${file.name}`}>
               <IconButton
                 aria-label={`Remove ${file.name}`}
-                onClick={() => onRemove(file.id || file.name)}
+                onClick={() => onRemove(file.id || file.storageId || file._id || file.name)}
                 size="small"
                 sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
               >

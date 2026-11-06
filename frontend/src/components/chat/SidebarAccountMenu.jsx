@@ -15,6 +15,7 @@ import { Link } from '@tanstack/react-router'
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined'
 import ExpandLessRoundedIcon from '@mui/icons-material/ExpandLessRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
+import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined'
 import { useThemeStore } from '../../hooks'
@@ -55,7 +56,7 @@ export default function SidebarAccountMenu({ onClose }) {
           <ShieldOutlinedIcon sx={{ fontSize: 17 }} />
         </Box>
         <Box>
-          <Typography sx={{ color: 'text.primary', fontSize: 'caption.fontSize', fontWeight: 600 }}>
+          <Typography sx={{ color: 'text.primary', fontSize: 'caption.fontSize', fontWeight: 500 }}>
             Your privacy matters
           </Typography>
           <Typography sx={{ color: 'text.secondary', fontSize: 'caption.fontSize' }}>
@@ -98,7 +99,7 @@ export default function SidebarAccountMenu({ onClose }) {
           K
         </Avatar>
         <Box sx={{ display: 'flex', minWidth: 0, flex: 1, flexDirection: 'column', alignItems: 'flex-start', gap: 0.25 }}>
-          <Typography noWrap sx={{ maxWidth: '100%', fontSize: 'caption.fontSize', fontWeight: 600 }}>
+          <Typography noWrap sx={{ maxWidth: '100%', fontSize: 'caption.fontSize', fontWeight: 500 }}>
             Guest account
           </Typography>
           <Typography noWrap sx={{ maxWidth: '100%', color: 'text.secondary', fontSize: 'caption.fontSize' }}>
@@ -121,7 +122,7 @@ export default function SidebarAccountMenu({ onClose }) {
         slotProps={{ paper: { sx: { width: 238, mb: 1, borderRadius: 2.5 } } }}
       >
         <Box sx={{ px: 2, py: 1.25 }}>
-          <Typography sx={{ color: 'text.primary', fontSize: 'body2.fontSize', fontWeight: 700 }}>
+          <Typography sx={{ color: 'text.primary', fontSize: 'body2.fontSize', fontWeight: 600 }}>
             Guest account
           </Typography>
           <Typography sx={{ mt: 0.25, color: 'text.secondary', fontSize: 'caption.fontSize' }}>
@@ -129,6 +130,19 @@ export default function SidebarAccountMenu({ onClose }) {
           </Typography>
         </Box>
         <Divider />
+        <MenuItem
+          component={Link}
+          to="/notifications"
+          activeProps={{ className: 'active' }}
+          onClick={() => {
+            setAccountMenuAnchor(null)
+            onClose?.()
+          }}
+          sx={{ minHeight: 39, gap: 1, fontSize: 'caption.fontSize' }}
+        >
+          <NotificationsNoneOutlinedIcon sx={{ color: 'text.secondary', fontSize: 17 }} />
+          Notifications
+        </MenuItem>
         <MenuItem
           component={Link}
           to="/settings"

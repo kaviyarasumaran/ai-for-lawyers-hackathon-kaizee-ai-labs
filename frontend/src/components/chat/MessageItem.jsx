@@ -23,14 +23,18 @@ function AssistantMessageContent({
     [message.content],
   )
 
+  const effectiveSources = useMemo(() => {
+    return Array.isArray(message.sources) ? message.sources : []
+  }, [message.sources])
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '100%' }}>
       <MarkdownView content={displayContent} />
 
-      {message.sources && message.sources.length > 0 && (
+      {effectiveSources.length > 0 && (
         <SourceTriggerButton
-          count={message.sources.length}
-          onClick={() => onOpenSources?.(message.sources)}
+          count={effectiveSources.length}
+          onClick={() => onOpenSources?.(effectiveSources)}
           isDark={isDark}
         />
       )}
@@ -76,7 +80,10 @@ function AssistantMessageContent({
   )
 }
 
-function UserMessageContent({ message, originalIndex, onBranch, chatId, isDark }) {
+function UserMessageContent({ message, originalIndex, onBranch, chatId, caseId, isDark }) {
+  const hasAttachments = Array.isArray(message.attachments) && message.attachments.length > 0
+  const hasContent = Boolean(message.content && message.content.trim())
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', maxWidth: '100%' }}>
       <Box
@@ -90,22 +97,23 @@ function UserMessageContent({ message, originalIndex, onBranch, chatId, isDark }
           maxWidth: '100%',
         }}
       >
-        {message.attachments && message.attachments.length > 0 && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: message.content ? 1.25 : 0 }}>
+        {hasAttachments && (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: hasContent ? 1.25 : 0 }}>
             {message.attachments.map((att, attIdx) => (
               <MessageAttachmentCard
                 key={att.id || attIdx}
                 attachment={att}
                 isDark={isDark}
                 chatId={chatId}
+                caseId={caseId}
               />
             ))}
           </Box>
         )}
-        {message.content && (
+        {hasContent && (
           <Typography
             sx={{
-              fontSize: 'body2.fontSize',
+              fontSize: '0.9375rem',
               lineHeight: 1.7,
               whiteSpace: 'pre-wrap',
               overflowWrap: 'anywhere',
@@ -140,6 +148,7 @@ function MessageItem({
   onBranch,
   onOpenSources,
   chatId,
+  caseId,
   isDark,
 }) {
   const isAssistant = message.role === 'assistant'
@@ -176,7 +185,7 @@ function MessageItem({
 
       <Box
         sx={{
-          maxWidth: isAssistant ? 'min(92%, 820px)' : 'min(85%, 680px)',
+          maxWidth: isAssistant ? 'min(96%, 1060px)' : 'min(88%, 780px)',
           width: isAssistant ? '100%' : 'auto',
         }}
       >
@@ -186,7 +195,7 @@ function MessageItem({
             color: 'text.secondary',
             textAlign: isAssistant ? 'left' : 'right',
             fontSize: 'caption.fontSize',
-            fontWeight: 600,
+            fontWeight: 400,
             letterSpacing: '0.01em',
           }}
         >
@@ -209,6 +218,7 @@ function MessageItem({
             originalIndex={originalIndex}
             onBranch={onBranch}
             chatId={chatId}
+            caseId={caseId}
             isDark={isDark}
           />
         )}

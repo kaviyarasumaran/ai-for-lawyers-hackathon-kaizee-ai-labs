@@ -46,7 +46,7 @@ export default function ChatComposerRecordingBanner({ recordingSeconds, waveform
           flex: 'none',
           fontFamily: 'monospace',
           fontSize: '0.78rem',
-          fontWeight: 700,
+          fontWeight: 500,
           color: isDark ? '#b2d3ba' : '#336142',
         }}
       >
@@ -57,7 +57,7 @@ export default function ChatComposerRecordingBanner({ recordingSeconds, waveform
           flex: 'none',
           display: { xs: 'none', sm: 'inline' },
           fontSize: 'caption.fontSize',
-          fontWeight: 600,
+          fontWeight: 400,
           color: 'text.secondary',
         }}
       >

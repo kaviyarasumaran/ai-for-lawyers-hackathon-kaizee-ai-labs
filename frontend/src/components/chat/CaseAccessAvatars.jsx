@@ -92,10 +92,10 @@ function CaseAccessAvatars({ members }) {
       >
         <Paper elevation={0} sx={{ overflow: 'hidden' }}>
           <Box sx={{ px: 2, py: 1.5 }}>
-            <Typography sx={{ color: '#303a32', fontSize: 'body2.fontSize', fontWeight: 700 }}>
+            <Typography sx={{ color: 'text.primary', fontSize: 'body2.fontSize', fontWeight: 600 }}>
               Case access
             </Typography>
-            <Typography sx={{ mt: 0.3, color: '#858c85', fontSize: 'caption.fontSize' }}>
+            <Typography sx={{ mt: 0.3, color: 'text.secondary', fontSize: 'caption.fontSize' }}>
               {members.length} {members.length === 1 ? 'person has' : 'people have'} access to this case
             </Typography>
           </Box>
@@ -124,13 +124,13 @@ function CaseAccessAvatars({ members }) {
                     primary: {
                       sx: {
                         overflow: 'hidden',
-                        color: '#48524a',
+                        color: 'text.primary',
                         fontSize: 'body2.fontSize',
-                        fontWeight: 600,
+                        fontWeight: 400,
                         textOverflow: 'ellipsis',
                       },
                     },
-                    secondary: { sx: { mt: 0.25, color: '#858c85', fontSize: 'caption.fontSize' } },
+                    secondary: { sx: { mt: 0.25, color: 'text.secondary', fontSize: 'caption.fontSize' } },
                   }}
                 />
               </ListItem>

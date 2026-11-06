@@ -105,8 +105,8 @@ export default function ChatHistoryRow({
             sx={{
               flex: 1,
               minWidth: 0,
-              fontSize: 'caption.fontSize',
-              fontWeight: 600,
+              fontSize: '0.875rem',
+              fontWeight: 400,
               px: 0.75,
               py: 0.25,
               borderRadius: 1,
@@ -160,12 +160,12 @@ export default function ChatHistoryRow({
               onClose()
             }}
             sx={{
-              minHeight: 36,
+              minHeight: 38,
               minWidth: 0,
               flex: 1,
               gap: 0.75,
               px: 1,
-              py: 0.25,
+              py: 0.375,
               borderRadius: 1.5,
               '&.Mui-selected': { bgcolor: 'transparent', color: isDark ? '#a9d0b2' : '#265f4b' },
               '&.Mui-selected:hover': { bgcolor: 'transparent' },
@@ -185,7 +185,7 @@ export default function ChatHistoryRow({
             <Typography
               noWrap
               title={chat.title}
-              sx={{ minWidth: 0, flex: 1, color: 'text.primary', fontSize: 'caption.fontSize', fontWeight: 600 }}
+              sx={{ minWidth: 0, flex: 1, color: 'text.primary', fontSize: '0.875rem', fontWeight: isActive ? 500 : 400 }}
             >
               {chat.title}
             </Typography>

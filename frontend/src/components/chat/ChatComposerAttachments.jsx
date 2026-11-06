@@ -47,7 +47,7 @@ export default function ChatComposerAttachments({ stagedFiles = [], onRemoveStag
               <InsertDriveFileOutlinedIcon sx={{ fontSize: 18, color: 'primary.main' }} />
             )}
             <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography noWrap sx={{ fontSize: '0.75rem', fontWeight: 600, color: 'text.primary' }}>
+              <Typography noWrap sx={{ fontSize: '0.75rem', fontWeight: 400, color: 'text.primary' }}>
                 {file.name}
               </Typography>
               <Typography sx={{ fontSize: '0.68rem', color: 'text.secondary' }}>

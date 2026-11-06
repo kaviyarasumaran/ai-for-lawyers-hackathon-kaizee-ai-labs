@@ -18,29 +18,14 @@ const EMPTY_ARRAY = []
 function ChatLayout() {
   const isDark = useTheme().palette.mode === 'dark'
   const navigate = useNavigate()
-  const {
-    caseId: routeCaseId,
-    chatId: routeChatId,
-  } = useParams({ strict: false })
+  const { caseId: routeCaseId, chatId: routeChatId } = useParams({ strict: false })
   const isCaseChat = Boolean(routeCaseId)
   const caseId = routeCaseId ?? 'default-chat'
   const {
-    cases,
-    isCasesLoading,
-    teamMembers,
-    chats,
-    activeChatId,
-    activeChat,
-    addCaseFiles,
-    removeCaseFile,
-    addCaseMessages,
-    addChatMessages,
-    createChat,
-    selectChat,
-    toggleChatPinned,
-    renameChat,
-    deleteChat,
-    branchChat,
+    cases, isCasesLoading, teamMembers, chats, activeChatId, activeChat,
+    syncBackendConversations, loadChatMessages, addCaseFiles, removeCaseFile,
+    addCaseMessages, addChatMessages, createChat, selectChat, toggleChatPinned,
+    renameChat, deleteChat, branchChat,
   } = useCases()
   const currentCase = cases.find((caseItem) => caseItem.id === caseId)
   const currentChat = (routeChatId && !routeCaseId)
@@ -61,6 +46,16 @@ function ChatLayout() {
     prevEffectiveChatIdRef.current = effectiveChatId
     setStagedFiles([])
   }
+
+  useEffect(() => {
+    syncBackendConversations?.()
+  }, [syncBackendConversations])
+
+  useEffect(() => {
+    if (!isCaseChat && effectiveChatId) {
+      loadChatMessages?.(effectiveChatId)
+    }
+  }, [isCaseChat, effectiveChatId, loadChatMessages])
 
   useEffect(() => {
     if (isCaseChat || !effectiveChatId) return
@@ -233,34 +228,44 @@ function ChatLayout() {
   }
 
   async function removeChatFile(fileId) {
+    if (!fileId) return
     try {
-      if (isCaseChat) {
+      if (isCaseChat && currentCase?.documents?.some((doc) => doc.id === fileId)) {
         await removeCaseFile(caseId, fileId)
       } else {
-        await deleteChatAttachment(fileId, effectiveChatId)
+        await deleteChatAttachment(fileId, effectiveChatId).catch(() => {})
         setGeneralChatFiles((prev) => prev.filter((f) => f.id !== fileId))
       }
     } catch (error) {
-      setNotice(error.message)
+      setNotice(error.message || 'Could not delete file')
+    } finally {
+      setGeneralChatFiles((prev) => prev.filter((f) => f.id !== fileId))
+      setStagedFiles((prev) => prev.filter((f) => f.id !== fileId))
     }
   }
 
   async function removeStagedFile(fileId) {
+    if (!fileId) return
     setStagedFiles((prev) => prev.filter((f) => f.id !== fileId))
     await removeChatFile(fileId)
   }
 
-  async function sendMessage(text, attachedFiles = []) {
+  async function sendMessage(text, attachedFiles) {
     if (isTyping) return
     const isCaseChat = Boolean(routeCaseId)
     const responseConversationId = conversationId
     const responseCaseId = caseId
     const responseChatId = isCaseChat ? caseChatId : (currentChat?.id ?? conversationId)
+    const filesToAttach = Array.isArray(attachedFiles) && attachedFiles.length > 0
+      ? attachedFiles
+      : (Array.isArray(stagedFiles) ? [...stagedFiles] : [])
+
+    const effectiveText = typeof text === 'string' ? text.trim() : ''
     const userMessage = {
       id: crypto.randomUUID(),
       role: 'user',
-      content: text,
-      attachments: attachedFiles,
+      content: effectiveText,
+      attachments: filesToAttach,
     }
 
     if (routeCaseId) {
@@ -287,17 +292,22 @@ function ChatLayout() {
       const history = baseMessages
         .filter((message) =>
           ['user', 'assistant'].includes(message.role) &&
-          typeof message.content === 'string' &&
-          message.content.trim(),
+          ((typeof message.content === 'string' && message.content.trim()) ||
+           (Array.isArray(message.attachments) && message.attachments.length > 0)),
         )
-        .map(({ role, content }) => ({ role, content }))
+        .map(({ role, content, attachments }) => ({
+          role,
+          content: content || 'Please review the attached document(s).',
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        }))
 
       let currentSources = []
+      const promptContent = effectiveText || 'Please review and analyze the attached document(s).'
       const res = await requestChatReply(
-        [...history, { role: 'user', content: text, attachments: attachedFiles }],
+        [...history, { role: 'user', content: promptContent, attachments: filesToAttach }],
         {
           chatId: responseConversationId,
-          attachment_ids: attachedFiles.map((f) => f.id),
+          attachment_ids: filesToAttach.map((f) => f.id).filter(Boolean),
           ...(isCaseChat ? { caseId: responseCaseId } : {}),
           onDelta: (partialReply) => {
             setStreamingState({
@@ -383,6 +393,7 @@ function ChatLayout() {
           isCollapsed={isHistoryCollapsed}
           isOpen={isHistoryOpen}
           onClose={() => setIsHistoryOpen(false)}
+          isCaseChat={isCaseChat}
         />
         <Box
           component="main"

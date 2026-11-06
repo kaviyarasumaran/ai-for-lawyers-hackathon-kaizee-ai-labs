@@ -148,15 +148,17 @@ async def delete_document(document_id: str) -> None:
         raise HTTPException(status_code=404, detail="Document not found.")
 
     try:
-        await delete_file(document["path"])
+        if document.get("path"):
+            try:
+                await delete_file(document["path"])
+            except Exception as s_exc:
+                logger.warning("Could not delete Knowledge Base file %s from storage: %s", document.get("path"), s_exc)
         result = await get_documents_collection().delete_one({"id": document_id})
         if postgres.case_migration_ready:
             try:
                 await run_in_threadpool(postgres.delete_global_document, document_id)
             except Exception:
                 logger.debug("Could not delete document from PostgreSQL global_legal_documents", exc_info=True)
-    except StorageError as exc:
-        raise storage_http_exception(exc) from exc
     except PyMongoError as exc:
         logger.exception("Could not delete Knowledge Base file metadata")
         raise HTTPException(status_code=503, detail="Document storage is unavailable.") from exc

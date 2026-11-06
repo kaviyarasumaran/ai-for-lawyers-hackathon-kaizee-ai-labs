@@ -157,11 +157,11 @@ function ChatHeader({
         </>
       )}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mr: 'auto', ml: { xs: 0, md: 0.125 } }}>
-        <Typography noWrap sx={{ maxWidth: { xs: 100, sm: 220 }, color: '#303632', fontSize: 'body2.fontSize', fontWeight: 700 }}>
+        <Typography noWrap sx={{ maxWidth: { xs: 140, sm: 300, md: 450 }, color: 'text.primary', fontSize: '0.9375rem', fontWeight: 600 }}>
           {isCaseChat ? caseTitle || 'Case chat' : caseTitle || 'Legal assistant'}
         </Typography>
         <Box sx={{ display: { xs: 'none', sm: 'block' }, width: '1px', height: 13, bgcolor: 'divider' }} />
-        <Typography sx={{ display: { xs: 'none', sm: 'block' }, color: 'text.secondary', fontSize: 'body2.fontSize' }}>
+        <Typography sx={{ display: { xs: 'none', sm: 'block' }, color: 'text.secondary', fontSize: '0.875rem' }}>
           {matterType || 'A thoughtful place to start'}
         </Typography>
       </Box>
@@ -210,7 +210,7 @@ function ChatHeader({
                 bgcolor: 'background.paper',
                 color: 'text.primary',
                 fontSize: { xs: 11, md: 12 },
-                fontWeight: 600,
+                fontWeight: 500,
                 textTransform: 'none',
                 '& .MuiButton-startIcon': { color: 'primary.main', mr: 0.25, '& svg': { fontSize: 16 } },
                 '&:hover': {
@@ -229,7 +229,7 @@ function ChatHeader({
                   height: 18,
                   minWidth: 18,
                   fontSize: '0.72rem',
-                  fontWeight: 700,
+                  fontWeight: 500,
                   bgcolor: isDark ? 'rgba(54,117,77,0.3)' : '#e2ede3',
                   color: 'primary.main',
                   '& .MuiChip-label': { px: 0.5 },

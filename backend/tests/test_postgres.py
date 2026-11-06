@@ -125,6 +125,37 @@ class PostgresConnectionTests(unittest.TestCase):
             "[" + ",".join(["0.5"] * postgres.EMBEDDING_DIMENSIONS) + "]",
         )
 
+    def test_case_payload_empty_cause_list_and_precedents(self) -> None:
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        fake_conn = FakeConnection()
+
+        class MockCursorResult:
+            def fetchall(self):
+                return []
+
+        fake_conn.execute = lambda *args, **kwargs: MockCursorResult()
+
+        case_row = {
+            "id": "case-test-empty",
+            "chat_id": "chat-test-1",
+            "title": "Test Title",
+            "matter_type": "Dispute",
+            "parties": "A v. B",
+            "summary": "",
+            "generated_summary": None,
+            "findings": [],
+            "status": "Open",
+            "created_at": now,
+            "last_activity_at": now,
+            "cause_list": None,
+            "precedents": None,
+        }
+        payload = postgres._case_payload(fake_conn, case_row)
+        self.assertIsNone(payload["causeList"])
+        self.assertEqual(payload["precedents"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

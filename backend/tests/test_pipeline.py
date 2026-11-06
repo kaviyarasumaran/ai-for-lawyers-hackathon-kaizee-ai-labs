@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app import pipeline
-from app.pipeline import _summary_payload, chunk_pages, extract_document
+from app.pipeline import _parse_pipeline_features, _summary_payload, chunk_pages, extract_document
 
 
 class DocumentPipelineTests(unittest.TestCase):
@@ -63,6 +63,47 @@ class DocumentPipelineTests(unittest.TestCase):
         self.assertEqual(findings[0]["sources"], ["brief.pdf, p. 2"])
         with self.assertRaises(ValueError):
             _summary_payload('{"summary":"","findings":[]}')
+
+    def test_parse_pipeline_features_extracts_cause_list_and_precedents(self) -> None:
+        raw_json = """{
+            "summary": "Case summary regarding breach of commercial contract.",
+            "findings": [{"title": "Breach of Clause 4", "detail": "Payment not made within 30 days.", "sources": ["agreement.pdf"]}],
+            "causeList": {
+                "courtName": "High Court of Delhi",
+                "courtNumber": "Court No. 14",
+                "bench": "Division Bench",
+                "itemNumber": "28",
+                "listType": "Daily Cause List",
+                "hearingDate": "2026-11-20",
+                "stage": "Final Arguments",
+                "status": "Listed",
+                "lastMinuteAlert": "Court running 2 items behind schedule.",
+                "notes": "Original documents ready."
+            },
+            "precedents": [
+                {
+                    "caseName": "Vidya Drolia v. Durga Trading Corporation",
+                    "citation": "(2021) 2 SCC 1",
+                    "court": "Supreme Court of India",
+                    "year": "2020",
+                    "status": "good_law",
+                    "treatment": "Affirmed in In Re: Interplay (2023)",
+                    "ratio": "Four-fold test on arbitrability.",
+                    "analysis": "Settled landmark authority.",
+                    "subsequentCitations": ["In Re: Interplay (2023)"]
+                }
+            ]
+        }"""
+        summary, findings, cause_list, precedents = _parse_pipeline_features(raw_json)
+        self.assertEqual(summary, "Case summary regarding breach of commercial contract.")
+        self.assertEqual(len(findings), 1)
+        self.assertIsNotNone(cause_list)
+        self.assertEqual(cause_list["itemNumber"], "28")
+        self.assertEqual(cause_list["courtNumber"], "Court No. 14")
+        self.assertIsNotNone(precedents)
+        self.assertEqual(len(precedents), 1)
+        self.assertEqual(precedents[0]["status"], "good_law")
+        self.assertEqual(precedents[0]["citation"], "(2021) 2 SCC 1")
 
 
 class FakeProviderResponse:

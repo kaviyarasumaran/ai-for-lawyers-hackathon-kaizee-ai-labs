@@ -82,14 +82,14 @@ function MessageThread({ member, messages, onBack, onSend }) {
                 <Paper
                   elevation={0}
                   sx={{
-                    px: 1.5,
-                    py: 1,
+                    px: 1.75,
+                    py: 1.25,
                     borderRadius: '14px 4px 14px 14px',
                     bgcolor: 'primary.light',
                     color: 'text.primary',
                   }}
                 >
-                  <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: 'body2.fontSize', lineHeight: 1.6 }}>
+                  <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: '0.9375rem', lineHeight: 1.65 }}>
                     {message.content}
                   </Typography>
                 </Paper>
@@ -122,7 +122,7 @@ function MessageThread({ member, messages, onBack, onSend }) {
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Write a message..."
             inputProps={{ 'aria-label': 'Write a message' }}
-            sx={{ flex: 1, py: 0.5, fontSize: 'body2.fontSize' }}
+            sx={{ flex: 1, py: 0.5, fontSize: '0.9375rem' }}
           />
           <Button
             type="submit"

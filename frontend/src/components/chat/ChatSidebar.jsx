@@ -18,10 +18,11 @@ import ExploreOutlinedIcon from '@mui/icons-material/ExploreOutlined'
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
+import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined'
+import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import GavelOutlinedIcon from '@mui/icons-material/GavelOutlined'
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
-import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import { useState } from 'react'
 import { useCases } from '../../hooks'
@@ -106,7 +107,7 @@ function SidebarContent({ onClose, onCreateCase, cases }) {
       </Button>
 
       <Box sx={{ mt: 3.625 }}>
-        <Typography sx={{ mb: 1.125, ml: 1.25, color: 'text.secondary', fontSize: 'caption.fontSize', fontWeight: 700, letterSpacing: 1.05 }}>
+        <Typography sx={{ mb: 1.125, ml: 1.25, color: 'text.secondary', fontSize: 'caption.fontSize', fontWeight: 600, letterSpacing: 1.05 }}>
           WORKSPACE
         </Typography>
         <List disablePadding>
@@ -131,7 +132,7 @@ function SidebarContent({ onClose, onCreateCase, cases }) {
             </ListItemIcon>
             <ListItemText
               primary="AI Assistant"
-              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize', fontWeight: 600 } } }}
+              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize', fontWeight: 400 } } }}
             />
           </ListItemButton>
           <ListItemButton
@@ -154,7 +155,7 @@ function SidebarContent({ onClose, onCreateCase, cases }) {
             </ListItemIcon>
             <ListItemText
               primary="Discover"
-              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize', fontWeight: 600 } } }}
+              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize', fontWeight: 400 } } }}
             />
           </ListItemButton>
           <ListItemButton
@@ -177,12 +178,12 @@ function SidebarContent({ onClose, onCreateCase, cases }) {
             </ListItemIcon>
             <ListItemText
               primary="Knowledge Base"
-              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize' } } }}
+              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize', fontWeight: 400 } } }}
             />
           </ListItemButton>
           <ListItemButton
             component={Link}
-            to="/notifications"
+            to="/judgment-validity"
             activeProps={{ className: 'active' }}
             onClick={onClose}
             sx={{
@@ -197,11 +198,35 @@ function SidebarContent({ onClose, onCreateCase, cases }) {
             }}
           >
             <ListItemIcon sx={{ minWidth: 26, color: 'inherit' }}>
-              <NotificationsNoneOutlinedIcon sx={{ fontSize: 17 }} />
+              <FactCheckOutlinedIcon sx={{ fontSize: 17 }} />
             </ListItemIcon>
             <ListItemText
-              primary="Notifications"
-              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize' } } }}
+              primary="Judgment Validity"
+              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize', fontWeight: 400 } } }}
+            />
+          </ListItemButton>
+          <ListItemButton
+            component={Link}
+            to="/cause-list"
+            activeProps={{ className: 'active' }}
+            onClick={onClose}
+            sx={{
+              minHeight: 38,
+              mt: 0.375,
+              px: 1.25,
+              py: 0,
+              borderRadius: 1.75,
+              color: 'text.secondary',
+              '&.active': { color: 'primary.main', bgcolor: isDark ? '#293a2f' : '#e9f0e9' },
+              '&:hover': { bgcolor: isDark ? '#26332b' : '#eef2ec' },
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: 26, color: 'inherit' }}>
+              <EventNoteOutlinedIcon sx={{ fontSize: 17 }} />
+            </ListItemIcon>
+            <ListItemText
+              primary="Cause List"
+              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize', fontWeight: 400 } } }}
             />
           </ListItemButton>
           <ListItemButton
@@ -225,7 +250,7 @@ function SidebarContent({ onClose, onCreateCase, cases }) {
             </ListItemIcon>
             <ListItemText
               primary="Messages"
-              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize' } } }}
+              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize', fontWeight: 400 } } }}
             />
           </ListItemButton>
         </List>
@@ -233,7 +258,7 @@ function SidebarContent({ onClose, onCreateCase, cases }) {
 
       <Box sx={{ mt: 3.875 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.125, ml: 1.25 }}>
-          <Typography sx={{ color: 'text.secondary', fontSize: 'caption.fontSize', fontWeight: 700, letterSpacing: 1.05 }}>
+          <Typography sx={{ color: 'text.secondary', fontSize: 'caption.fontSize', fontWeight: 600, letterSpacing: 1.05 }}>
             RECENT CASES
           </Typography>
           <IconButton
@@ -312,7 +337,7 @@ function SidebarContent({ onClose, onCreateCase, cases }) {
             </ListItemIcon>
             <ListItemText
               primary="Network"
-              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize', fontWeight: 600 } } }}
+              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize', fontWeight: 400 } } }}
             />
           </ListItemButton>
           <ListItemButton
@@ -335,7 +360,7 @@ function SidebarContent({ onClose, onCreateCase, cases }) {
             </ListItemIcon>
             <ListItemText
               primary="Settings"
-              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize', fontWeight: 600 } } }}
+              slotProps={{ primary: { sx: { fontSize: 'body2.fontSize', fontWeight: 400 } } }}
             />
           </ListItemButton>
         </List>

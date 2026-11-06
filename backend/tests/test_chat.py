@@ -1,6 +1,8 @@
+import json
 import unittest
 from copy import deepcopy
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from bson import ObjectId
@@ -172,17 +174,22 @@ class FakePostgresCases:
 
 
 class FakeLLMResponse:
+    def __init__(self, content: str = "A cautious legal information response.") -> None:
+        self.content = content
+
     def raise_for_status(self) -> None:
         return None
 
     def json(self) -> dict:
-        return {"choices": [{"message": {"content": "A cautious legal information response."}}]}
+        return {"choices": [{"message": {"content": self.content}}]}
 
 
 class FakeAsyncClient:
     request_url = None
     request_headers = None
     request_json = None
+    custom_response = None
+    custom_stream_response = None
 
     def __init__(self, timeout: Any = None) -> None:
         self.timeout = timeout
@@ -197,6 +204,22 @@ class FakeAsyncClient:
         type(self).request_url = url
         type(self).request_headers = headers
         type(self).request_json = json
+
+        if type(self).custom_response is not None:
+            return FakeLLMResponse(type(self).custom_response)
+
+        user_msgs = [m.get("content", "") for m in json.get("messages", []) if m.get("role") == "user"]
+        user_text = " ".join(user_msgs).lower()
+
+        if "when was it signed" in user_text:
+            return FakeLLMResponse("According to brief.pdf, the contract was executed on 1 January.")
+        if "anticipatory bail" in user_text:
+            return FakeLLMResponse("In Rajesh Kumar v. State, anticipatory bail under Section 482 of the Bharatiya Nagarik Suraksha Sanhita (BNSS) is sought.")
+        if "section 9" in user_text or "interim relief" in user_text:
+            return FakeLLMResponse("Under Clause 14 of the Supply Agreement.pdf, disputes are subject to arbitration. Section 9 of the Arbitration and Conciliation Act provides interim relief.")
+        if "cheating" in user_text:
+            return FakeLLMResponse("Under Section 318 of the Bharatiya Nyaya Sanhita (BNS), 2023, Cheating requires dishonest inducement causing wrongful loss.")
+
         return FakeLLMResponse()
 
     def stream(self, method: str, url: str, *, headers: dict, json: dict):
@@ -209,9 +232,23 @@ class FakeAsyncClient:
                 class StreamResp:
                     status_code = 200
 
-                    async def aiter_lines(self):
-                        yield 'data: {"choices":[{"delta":{"content":"Streamed "}}]}'
-                        yield 'data: {"choices":[{"delta":{"content":"reply."}}]}'
+                    async def aiter_lines(iter_self):
+                        text = FakeAsyncClient.custom_stream_response
+                        if text is None:
+                            user_msgs = [m.get("content", "") for m in json.get("messages", []) if m.get("role") == "user"]
+                            user_text = " ".join(user_msgs).lower()
+                            if "fir under bnss" in user_text:
+                                text = "Under Section 173 of the Bharatiya Nagarik Suraksha Sanhita (BNSS), an FIR must be registered for cognizable offences."
+                            else:
+                                text = "Streamed reply."
+
+                        parts = text.split(" ")
+                        mid = max(1, len(parts) // 2)
+                        p1 = " ".join(parts[:mid]) + " "
+                        p2 = " ".join(parts[mid:])
+                        import json as json_mod
+                        yield f'data: {{"choices":[{{"delta":{{"content":{json_mod.dumps(p1)}}}}}]}}'
+                        yield f'data: {{"choices":[{{"delta":{{"content":{json_mod.dumps(p2)}}}}}]}}'
                         yield 'data: [DONE]'
 
                 return StreamResp()
@@ -958,6 +995,203 @@ class SupabaseFileEndpointTests(unittest.TestCase):
         # Ensure has_valid_embedding check exists
         self.assertIn("has_valid_embedding", src)
         self.assertIn("any(v != 0.0 for v in embedding)", src)
+
+    def test_general_chat_always_returns_general_kb_sources(self) -> None:
+        """Verify general chat without attachments returns grounded General Knowledge Base sources."""
+        with (
+            patch.object(main.settings, "llm_api_base_url", "https://llm.example/v1/"),
+            patch.object(main.settings, "llm_api_key", None),
+            patch.object(main.settings, "llm_model", "example-model"),
+            patch.object(main.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(main.postgres, "case_migration_ready", False),
+        ):
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "chatId": "chat-general-kb-test",
+                    "messages": [{"role": "user", "content": "What are the essential elements of cheating under BNS?"}],
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertIn("sources", data)
+            self.assertGreaterEqual(len(data["sources"]), 1)
+            # Verify source properties
+            for s in data["sources"]:
+                self.assertTrue(bool(s.get("name")))
+                self.assertEqual(s.get("sourceType"), "global_legal_authority")
+                self.assertTrue(bool(s.get("snippet")))
+            # Verify BNS was matched
+            self.assertTrue(any("Bharatiya Nyaya Sanhita" in s["name"] for s in data["sources"]))
+
+    def test_case_chat_returns_both_case_docs_and_general_kb_sources(self) -> None:
+        """Verify case chat accesses both case documents and the General Knowledge Base."""
+        fake_case_record = {
+            "id": "case-test-456",
+            "title": "Alpha Corp v. Beta Ltd",
+            "parties": "Alpha Corp (Petitioner) vs Beta Ltd (Respondent)",
+            "matterType": "Commercial Arbitration",
+            "summary": "Dispute concerning non-performance under supply contract.",
+        }
+        fake_case_chunks = [
+            {
+                "chunk_id": "case-chunk-1",
+                "document_id": "doc-supply-contract",
+                "name": "Supply Agreement.pdf",
+                "section": "Clause 14 (Dispute Resolution)",
+                "page_start": 4,
+                "page_end": 4,
+                "content": "All disputes shall be referred to arbitration seated in New Delhi.",
+                "source_type": "case_document",
+            }
+        ]
+
+        with (
+            patch.object(main.settings, "llm_api_base_url", "https://llm.example/v1/"),
+            patch.object(main.settings, "llm_api_key", None),
+            patch.object(main.settings, "llm_model", "example-model"),
+            patch.object(main.httpx, "AsyncClient", FakeAsyncClient),
+            patch("app.postgres.get_case", return_value=fake_case_record),
+            patch("app.postgres.get_pipeline_status", return_value={"processedDocuments": 1}),
+            patch("app.postgres.search_case_chunks", return_value=fake_case_chunks),
+            patch.object(main.postgres, "case_migration_ready", True),
+        ):
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "caseId": "case-test-456",
+                    "chatId": "chat-case-test",
+                    "messages": [{"role": "user", "content": "Can we invoke Section 9 for interim relief?"}],
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            sources = data["sources"]
+            self.assertGreaterEqual(len(sources), 2)
+            # Must contain both case_document and global_legal_authority
+            has_case_doc = any(s["sourceType"] == "case_document" for s in sources)
+            has_global_kb = any(s["sourceType"] == "global_legal_authority" for s in sources)
+            self.assertTrue(has_case_doc, "Case chat must contain case documents")
+            self.assertTrue(has_global_kb, "Case chat must also access the General Knowledge Base")
+
+    def test_empty_case_chat_returns_case_file_and_general_kb(self) -> None:
+        """Verify empty case chat (0 docs) returns case record source and General KB sources."""
+        fake_case_record = {
+            "id": "case-empty-789",
+            "title": "Rajesh Kumar v. State",
+            "parties": "Rajesh Kumar (Accused)",
+            "matterType": "Criminal Bail",
+            "summary": "Bail application under Section 482 BNSS.",
+        }
+
+        with (
+            patch.object(main.settings, "llm_api_base_url", "https://llm.example/v1/"),
+            patch.object(main.settings, "llm_api_key", None),
+            patch.object(main.settings, "llm_model", "example-model"),
+            patch.object(main.httpx, "AsyncClient", FakeAsyncClient),
+            patch("app.postgres.get_case", return_value=fake_case_record),
+            patch("app.postgres.get_pipeline_status", return_value={"processedDocuments": 0}),
+            patch("app.postgres.search_case_chunks", return_value=[]),
+            patch.object(main.postgres, "case_migration_ready", True),
+        ):
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "caseId": "case-empty-789",
+                    "chatId": "chat-case-empty",
+                    "messages": [{"role": "user", "content": "What are the grounds for anticipatory bail?"}],
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            sources = data["sources"]
+            self.assertGreaterEqual(len(sources), 1)
+            # Case file source present
+            self.assertTrue(any("Case File: Rajesh Kumar v. State" in s["name"] for s in sources))
+            # General KB source present
+            self.assertTrue(any(s["sourceType"] == "global_legal_authority" for s in sources))
+
+    def test_streaming_chat_emits_sources_event(self) -> None:
+        """Verify streaming chat emits a dedicated 'sources' event with grounded legal sources."""
+        with (
+            patch.object(main.settings, "llm_api_base_url", "https://llm.example/v1/"),
+            patch.object(main.settings, "llm_api_key", None),
+            patch.object(main.settings, "llm_model", "example-model"),
+            patch.object(main.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(main.postgres, "case_migration_ready", False),
+        ):
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "chatId": "stream-sources-test",
+                    "messages": [{"role": "user", "content": "How to register an FIR under BNSS?"}],
+                    "stream": True,
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            lines = [line.strip() for line in response.text.split("\n") if line.startswith("data: ")]
+            event_types = []
+            sources_payload = None
+            import json
+            for line in lines:
+                payload_str = line[6:]
+                if payload_str == "[DONE]":
+                    continue
+                evt = json.loads(payload_str)
+                event_types.append(evt.get("type"))
+                if evt.get("type") == "sources":
+                    sources_payload = evt.get("sources")
+
+            self.assertIn("sources", event_types)
+            self.assertIsNotNone(sources_payload)
+            self.assertGreaterEqual(len(sources_payload), 1)
+            self.assertTrue(any(s.get("sourceType") == "global_legal_authority" for s in sources_payload))
+
+    def test_when_kb_chunks_not_used_in_reply_they_are_not_displayed(self) -> None:
+        """Verify that when the LLM reply does not use candidate KB chunks, sources is empty."""
+        with (
+            patch.object(main.settings, "llm_api_base_url", "https://llm.example/v1/"),
+            patch.object(main.settings, "llm_api_key", None),
+            patch.object(main.settings, "llm_model", "example-model"),
+            patch.object(main.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(main.postgres, "case_migration_ready", False),
+            patch.object(FakeAsyncClient, "custom_response", "Hello! I am your legal assistant. How can I help you today?"),
+        ):
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "chatId": "chat-no-sources-test",
+                    "messages": [{"role": "user", "content": "Hello, good morning!"}],
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            # Because the reply did not use any legal KB chunks, sources must be strictly empty!
+            self.assertEqual(data["sources"], [])
+
+    def test_empty_content_with_attachments_succeeds(self) -> None:
+        """Verify user message with empty text and attached file succeeds without 422 error."""
+        with (
+            patch.object(main.settings, "llm_api_base_url", "https://llm.example/v1/"),
+            patch.object(main.settings, "llm_api_key", None),
+            patch.object(main.settings, "llm_model", "example-model"),
+            patch.object(main.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(main.postgres, "case_migration_ready", False),
+        ):
+            response = self.client.post(
+                "/api/chat",
+                json={
+                    "chatId": "chat-attachment-only-test",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": "",
+                            "attachments": [{"id": "att-123", "name": "contract.pdf", "size": 1024}],
+                        }
+                    ],
+                },
+            )
+            self.assertEqual(response.status_code, 200)
 
 
 

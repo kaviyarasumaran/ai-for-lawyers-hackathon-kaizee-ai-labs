@@ -132,6 +132,20 @@ async def upload_chat_attachment(
                 postgres.save_chat_attachment(attachment)
             except Exception:
                 logger.debug("Could not record chat attachment in PostgreSQL", exc_info=True)
+
+        # Trigger background chunking and embedding pipeline immediately upon upload
+        try:
+            from app import pipeline
+            asyncio.create_task(
+                pipeline.process_chat_attachment(
+                    attachment_id=attachment_id,
+                    name=name,
+                    content=content,
+                    chat_id=clean_chat_id,
+                )
+            )
+        except Exception as bg_exc:
+            logger.debug("Background chat attachment processing deferred: %s", bg_exc)
     except PyMongoError as exc:
         logger.exception("Could not save chat attachment metadata")
         try:
@@ -275,27 +289,38 @@ async def delete_chat_attachment(
 
         # Chat-level permission check: verify caller is authorized for this chat's media
         clean_chat_id = (chat_id or "").strip()
-        if clean_chat_id and att_chat_id and att_chat_id != clean_chat_id:
+        if clean_chat_id and att_chat_id and att_chat_id != clean_chat_id and att_chat_id != "default-chat":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied. You do not have permission to delete media from another chat session.",
+                detail="Access denied. This media file belongs to a different chat session.",
             )
 
         if attachment and attachment.get("path"):
-            await delete_file(attachment["path"])
+            try:
+                await delete_file(attachment["path"])
+            except Exception as s_exc:
+                logger.warning("Could not delete attachment file %s from storage: %s", attachment.get("path"), s_exc)
 
-        result = await get_attachments_collection().delete_one({"id": attachment_id})
+        # Also clean up local cache if present
+        try:
+            target_dir = ATTACHMENTS_CACHE_DIR / attachment_id
+            if target_dir.exists():
+                import shutil
+                shutil.rmtree(target_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+        deleted_pg = False
         if postgres.case_migration_ready:
             try:
                 postgres.delete_chat_attachment_record(attachment_id)
+                deleted_pg = True
             except Exception:
                 pass
-    except StorageError as exc:
-        raise storage_http_exception(exc) from exc
+
+        await get_attachments_collection().delete_one({"id": attachment_id})
     except HTTPException:
         raise
     except PyMongoError as exc:
         logger.exception("Could not delete chat attachment %s", attachment_id)
         raise HTTPException(status_code=503, detail="File metadata storage is unavailable.") from exc
-    if result.deleted_count == 0 and not postgres.case_migration_ready:
-        raise HTTPException(status_code=404, detail="Attachment not found.")

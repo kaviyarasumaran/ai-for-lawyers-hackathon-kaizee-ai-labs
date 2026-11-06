@@ -26,7 +26,7 @@ export default function TypingIndicator({ isDark }) {
         <GavelOutlinedIcon sx={{ fontSize: 19 }} />
       </Box>
       <Box>
-        <Typography sx={{ mb: 0.75, color: 'text.secondary', fontSize: 'caption.fontSize', fontWeight: 600 }}>
+        <Typography sx={{ mb: 0.75, color: 'text.secondary', fontSize: 'caption.fontSize', fontWeight: 400 }}>
           Counsel assistant
         </Typography>
         <Box

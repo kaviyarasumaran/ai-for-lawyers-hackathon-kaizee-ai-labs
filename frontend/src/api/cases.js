@@ -61,3 +61,41 @@ export function restartCasePipeline(caseId) {
     method: 'POST',
   })
 }
+
+export function syncCaseCauseList(caseId) {
+  return request(`/api/cases/${encodeURIComponent(caseId)}/cause-list/sync`, {
+    method: 'POST',
+  })
+}
+
+export function updateCaseCauseList(caseId, causeListData) {
+  return request(`/api/cases/${encodeURIComponent(caseId)}/cause-list`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(causeListData),
+  })
+}
+
+export function checkCitationValidity(caseId, citation) {
+  return request(`/api/cases/${encodeURIComponent(caseId)}/judgment-validity/check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ citation }),
+  })
+}
+
+export function matchCaseCauseList(caseId, caseNumber, parties) {
+  return request(`/api/cases/${encodeURIComponent(caseId)}/cause-list/match`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ caseNumber, parties }),
+  })
+}
+
+export function recordCaseHearing(caseId, hearingData) {
+  return request(`/api/cases/${encodeURIComponent(caseId)}/hearings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(hearingData),
+  })
+}

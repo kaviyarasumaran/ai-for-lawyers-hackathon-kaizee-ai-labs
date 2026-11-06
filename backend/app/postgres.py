@@ -117,6 +117,14 @@ def migrate_legacy_cases(records: list[dict[str, Any]]) -> int:
     return migrated
 
 
+def default_cause_list_for_case(case: dict[str, Any]) -> dict[str, Any] | None:
+    return None
+
+
+def default_precedents_for_case(case: dict[str, Any]) -> list[dict[str, Any]]:
+    return []
+
+
 def _case_payload(connection: psycopg.Connection, case_row: dict[str, Any]) -> dict[str, Any]:
     documents = connection.execute(
         """
@@ -136,6 +144,10 @@ def _case_payload(connection: psycopg.Connection, case_row: dict[str, Any]) -> d
     row["summary"] = generated_summary or row["manualSummary"]
     row["generatedSummary"] = generated_summary
     row["findings"] = row.pop("findings", [])
+    cause_list = row.pop("cause_list", None)
+    row["causeList"] = cause_list if (isinstance(cause_list, dict) and cause_list) else None
+    precedents = row.pop("precedents", None)
+    row["precedents"] = precedents if (isinstance(precedents, list) and precedents) else []
     row["chatId"] = row.pop("chat_id")
     row["matterType"] = row.pop("matter_type")
     row["createdAt"] = row.pop("created_at").isoformat()
@@ -310,7 +322,7 @@ def delete_case_document(case_id: str, document_id: str) -> dict[str, Any] | Non
 def get_pipeline_status(case_id: str) -> dict[str, Any] | None:
     with connect() as connection:
         case = connection.execute(
-            "SELECT id, generated_summary, findings FROM cases WHERE id = %s",
+            "SELECT * FROM cases WHERE id = %s",
             (case_id,),
         ).fetchone()
         if not case:
@@ -370,8 +382,18 @@ def get_pipeline_status(case_id: str) -> dict[str, Any] | None:
             }
             for document in documents
         ],
-        "summary": case["generated_summary"],
-        "findings": case["findings"],
+        "summary": case.get("generated_summary"),
+        "findings": case.get("findings") or [],
+        "causeList": (
+            case.get("cause_list")
+            if isinstance(case.get("cause_list"), dict) and case.get("cause_list")
+            else None
+        ),
+        "precedents": (
+            case.get("precedents")
+            if isinstance(case.get("precedents"), list) and case.get("precedents")
+            else []
+        ),
         "updatedAt": (
             summary_job["updated_at"].isoformat()
             if summary_job
@@ -721,6 +743,8 @@ def save_case_summary(
     job: dict[str, Any],
     summary: str,
     findings: list[dict[str, Any]],
+    cause_list: dict[str, Any] | None = None,
+    precedents: list[dict[str, Any]] | None = None,
 ) -> bool:
     with connect() as connection:
         connection.execute(
@@ -755,14 +779,29 @@ def save_case_summary(
                 (job["id"],),
             )
             return False
-        connection.execute(
-            """
-            UPDATE cases SET generated_summary = %s, findings = %s,
-                last_activity_at = now()
-            WHERE id = %s
-            """,
-            (summary, Jsonb(findings), job["case_id"]),
-        )
+        try:
+            updates = ["generated_summary = %s", "findings = %s", "last_activity_at = now()"]
+            params = [summary, Jsonb(findings)]
+            if cause_list is not None:
+                updates.append("cause_list = %s")
+                params.append(Jsonb(cause_list))
+            if precedents is not None:
+                updates.append("precedents = %s")
+                params.append(Jsonb(precedents))
+            params.append(job["case_id"])
+            connection.execute(
+                f"UPDATE cases SET {', '.join(updates)} WHERE id = %s",
+                params,
+            )
+        except Exception:
+            connection.execute(
+                """
+                UPDATE cases SET generated_summary = %s, findings = %s,
+                    last_activity_at = now()
+                WHERE id = %s
+                """,
+                (summary, Jsonb(findings), job["case_id"]),
+            )
         connection.execute(
             """
             UPDATE case_jobs SET status = 'succeeded', stage = 'completed',
@@ -772,6 +811,127 @@ def save_case_summary(
             (job["id"],),
         )
     return True
+
+
+def update_case_cause_list(case_id: str, cause_list: dict[str, Any]) -> dict[str, Any] | None:
+    with connect() as connection:
+        try:
+            case = connection.execute(
+                """
+                UPDATE cases
+                SET cause_list = %s, last_activity_at = now()
+                WHERE id = %s
+                RETURNING *
+                """,
+                (Jsonb(cause_list), case_id),
+            ).fetchone()
+        except Exception:
+            connection.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS cause_list JSONB DEFAULT '{}'::jsonb")
+            case = connection.execute(
+                """
+                UPDATE cases
+                SET cause_list = %s, last_activity_at = now()
+                WHERE id = %s
+                RETURNING *
+                """,
+                (Jsonb(cause_list), case_id),
+            ).fetchone()
+        return _case_payload(connection, case) if case else None
+
+
+def update_case_precedents(case_id: str, precedents: list[dict[str, Any]]) -> dict[str, Any] | None:
+    with connect() as connection:
+        try:
+            case = connection.execute(
+                """
+                UPDATE cases
+                SET precedents = %s, last_activity_at = now()
+                WHERE id = %s
+                RETURNING *
+                """,
+                (Jsonb(precedents), case_id),
+            ).fetchone()
+        except Exception:
+            connection.execute("ALTER TABLE cases ADD COLUMN IF NOT EXISTS precedents JSONB DEFAULT '[]'::jsonb")
+            case = connection.execute(
+                """
+                UPDATE cases
+                SET precedents = %s, last_activity_at = now()
+                WHERE id = %s
+                RETURNING *
+                """,
+                (Jsonb(precedents), case_id),
+            ).fetchone()
+        return _case_payload(connection, case) if case else None
+
+
+def ingest_hearing_record_to_kb(
+    case_id: str,
+    hearing_id: str,
+    title: str,
+    content: str,
+    embedding: list[float],
+) -> str:
+    """Ingests a courtroom hearing record directly into case_documents and case_chunks (pgvector)
+    so it becomes instantly searchable by the Case AI Agent.
+    """
+    doc_id = f"doc_hearing_{hearing_id}"
+    chunk_id = f"chunk_hearing_{hearing_id}"
+    with connect() as connection:
+        # 1. Insert or update case document
+        connection.execute(
+            """
+            INSERT INTO case_documents (
+                id, case_id, name, size, content_type, source, path, url, added_at,
+                pipeline_status, pipeline_stage, page_count, chunk_count
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now(), 'completed', 'completed', 1, 1)
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                size = EXCLUDED.size,
+                pipeline_status = 'completed',
+                pipeline_stage = 'completed',
+                chunk_count = 1
+            """,
+            (
+                doc_id,
+                case_id,
+                title,
+                len(content.encode("utf-8")),
+                "text/plain",
+                "court_hearing",
+                f"hearings/{hearing_id}.txt",
+                "",
+            ),
+        )
+
+        # 2. Delete old chunk if exists
+        connection.execute("DELETE FROM case_chunks WHERE document_id = %s", (doc_id,))
+
+        # 3. Insert into case_chunks with vector embedding
+        vector_str = "[" + ",".join(str(v) for v in embedding) + "]"
+        connection.execute(
+            """
+            INSERT INTO case_chunks (
+                id, case_id, document_id, ordinal, page_start, page_end, content, embedding
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector)
+            """,
+            (
+                chunk_id,
+                case_id,
+                doc_id,
+                0,
+                1,
+                1,
+                content,
+                vector_str,
+            ),
+        )
+
+        # 4. Touch last_activity_at on case
+        connection.execute("UPDATE cases SET last_activity_at = now() WHERE id = %s", (case_id,))
+    return doc_id
 
 
 def fail_job(job: dict[str, Any], error: str, max_attempts: int) -> None:
@@ -1578,6 +1738,7 @@ def search_chat_chunks(
     query: str,
     embedding: list[float] | None = None,
     limit: int = 5,
+    attachment_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     has_valid_embedding = bool(embedding and any(v != 0.0 for v in embedding))
     if not has_valid_embedding:
@@ -1585,6 +1746,22 @@ def search_chat_chunks(
         if not clean_q:
             return []
         with connect() as connection:
+            if attachment_ids:
+                return connection.execute(
+                    """
+                    SELECT chunk.id AS chunk_id, chunk.attachment_id, chunk.chat_id,
+                           chunk.content, chunk.page_start, chunk.page_end, attachment.name,
+                           ts_rank_cd(chunk.search_vector, plainto_tsquery('english', %s)) AS score
+                    FROM chat_chunks chunk
+                    JOIN chat_attachments attachment ON attachment.id = chunk.attachment_id
+                    WHERE (chunk.chat_id = %s OR chunk.attachment_id = ANY(%s))
+                      AND attachment.pipeline_status = 'completed'
+                      AND chunk.search_vector @@ plainto_tsquery('english', %s)
+                    ORDER BY score DESC
+                    LIMIT %s
+                    """,
+                    (query, chat_id, attachment_ids, query, limit),
+                ).fetchall()
             return connection.execute(
                 """
                 SELECT chunk.id AS chunk_id, chunk.attachment_id, chunk.chat_id,
@@ -1603,6 +1780,57 @@ def search_chat_chunks(
 
     vector = "[" + ",".join(str(value) for value in embedding) + "]"
     with connect() as connection:
+        if attachment_ids:
+            return connection.execute(
+                """
+                WITH vector_matches AS (
+                    SELECT chunk.id,
+                           row_number() OVER (ORDER BY chunk.embedding <=> %s::vector) AS rank
+                    FROM chat_chunks chunk
+                    JOIN chat_attachments attachment ON attachment.id = chunk.attachment_id
+                    WHERE (chunk.chat_id = %s OR chunk.attachment_id = ANY(%s)) AND attachment.pipeline_status = 'completed'
+                    ORDER BY chunk.embedding <=> %s::vector
+                    LIMIT 20
+                ),
+                keyword_matches AS (
+                    SELECT chunk.id,
+                           row_number() OVER (
+                               ORDER BY ts_rank_cd(
+                                   chunk.search_vector,
+                                   plainto_tsquery('english', %s)
+                               ) DESC
+                           ) AS rank
+                    FROM chat_chunks chunk
+                    JOIN chat_attachments attachment ON attachment.id = chunk.attachment_id
+                    WHERE (chunk.chat_id = %s OR chunk.attachment_id = ANY(%s))
+                      AND attachment.pipeline_status = 'completed'
+                      AND chunk.search_vector @@ plainto_tsquery('english', %s)
+                    ORDER BY ts_rank_cd(
+                        chunk.search_vector,
+                        plainto_tsquery('english', %s)
+                    ) DESC
+                    LIMIT 20
+                ),
+                reciprocal_ranks AS (
+                    SELECT id, sum(1.0 / (60 + rank)) AS score
+                    FROM (
+                        SELECT id, rank FROM vector_matches
+                        UNION ALL
+                        SELECT id, rank FROM keyword_matches
+                    ) matches
+                    GROUP BY id
+                )
+                SELECT chunk.id AS chunk_id, chunk.attachment_id, chunk.chat_id,
+                       chunk.content, chunk.page_start, chunk.page_end, attachment.name,
+                       reciprocal_ranks.score
+                FROM reciprocal_ranks
+                JOIN chat_chunks chunk ON chunk.id = reciprocal_ranks.id
+                JOIN chat_attachments attachment ON attachment.id = chunk.attachment_id
+                ORDER BY reciprocal_ranks.score DESC
+                LIMIT %s
+                """,
+                (vector, chat_id, attachment_ids, vector, query, chat_id, attachment_ids, query, query, limit),
+            ).fetchall()
         return connection.execute(
             """
             WITH vector_matches AS (
@@ -1655,8 +1883,28 @@ def search_chat_chunks(
         ).fetchall()
 
 
-def get_chat_header_chunks(chat_id: str, limit: int = 2) -> list[dict[str, Any]]:
+def get_chat_header_chunks(
+    chat_id: str,
+    limit: int = 2,
+    attachment_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
     with connect() as connection:
+        if attachment_ids:
+            return connection.execute(
+                """
+                SELECT chunk.id AS chunk_id, chunk.attachment_id, chunk.chat_id,
+                       chunk.content, chunk.page_start, chunk.page_end, attachment.name,
+                       1.0 AS score
+                FROM chat_chunks chunk
+                JOIN chat_attachments attachment ON attachment.id = chunk.attachment_id
+                WHERE (chunk.chat_id = %s OR chunk.attachment_id = ANY(%s))
+                  AND attachment.pipeline_status = 'completed'
+                  AND chunk.page_start <= 2
+                ORDER BY attachment.added_at ASC, chunk.ordinal ASC
+                LIMIT %s
+                """,
+                (chat_id, attachment_ids, limit),
+            ).fetchall()
         return connection.execute(
             """
             SELECT chunk.id AS chunk_id, chunk.attachment_id, chunk.chat_id,
@@ -1672,5 +1920,155 @@ def get_chat_header_chunks(chat_id: str, limit: int = 2) -> list[dict[str, Any]]
             """,
             (chat_id, limit),
         ).fetchall()
+
+
+def save_judgment(judgment: dict[str, Any]) -> dict[str, Any]:
+    with connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO judgments (
+                id, title, court, citation, neutral_citation, judgment_date,
+                source_url, content, year, bench_strength, judges
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                title = EXCLUDED.title,
+                court = EXCLUDED.court,
+                citation = EXCLUDED.citation,
+                neutral_citation = EXCLUDED.neutral_citation,
+                judgment_date = EXCLUDED.judgment_date,
+                source_url = EXCLUDED.source_url,
+                content = EXCLUDED.content,
+                year = EXCLUDED.year,
+                bench_strength = EXCLUDED.bench_strength,
+                judges = EXCLUDED.judges
+            """,
+            (
+                judgment["id"],
+                judgment["title"],
+                judgment["court"],
+                judgment.get("citation"),
+                judgment.get("neutral_citation"),
+                judgment.get("judgment_date"),
+                judgment.get("source_url"),
+                judgment.get("content"),
+                judgment.get("year"),
+                judgment.get("bench_strength", 2),
+                judgment.get("judges"),
+            ),
+        )
+    return judgment
+
+
+def get_judgment_by_id(judgment_id: str) -> dict[str, Any] | None:
+    with connect() as connection:
+        return connection.execute(
+            """
+            SELECT id, title, court, citation, neutral_citation, judgment_date,
+                   source_url, content, year, bench_strength, judges, created_at
+            FROM judgments
+            WHERE id = %s
+            """,
+            (judgment_id,),
+        ).fetchone()
+
+
+def search_judgments_db(
+    query: str,
+    court: str | None = None,
+    year: int | None = None,
+    limit: int = 15,
+) -> list[dict[str, Any]]:
+    with connect() as connection:
+        sql = """
+            SELECT id, title, court, citation, neutral_citation, judgment_date,
+                   source_url, year, bench_strength, judges
+            FROM judgments
+            WHERE 1=1
+        """
+        params: list[Any] = []
+        if query and query.strip():
+            sql += " AND (title ILIKE %s OR citation ILIKE %s OR neutral_citation ILIKE %s OR content ILIKE %s)"
+            q_like = f"%{query.strip()}%"
+            params.extend([q_like, q_like, q_like, q_like])
+        if court and court.strip() and court.strip().lower() != "all":
+            sql += " AND court ILIKE %s"
+            params.append(f"%{court.strip()}%")
+        if year:
+            sql += " AND year = %s"
+            params.append(year)
+        sql += " ORDER BY year DESC NULLS LAST, title ASC LIMIT %s"
+        params.append(limit)
+        return connection.execute(sql, tuple(params)).fetchall()
+
+
+def save_judgment_citation(
+    citation_id: str,
+    citing_judgment_id: str,
+    cited_judgment_id: str,
+    paragraph_reference: str | None = None,
+) -> None:
+    with connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO judgment_citations (id, citing_judgment_id, cited_judgment_id, paragraph_reference)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (citation_id, citing_judgment_id, cited_judgment_id, paragraph_reference),
+        )
+
+
+def save_judgment_treatment(treatment: dict[str, Any]) -> dict[str, Any]:
+    with connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO judgment_treatments (
+                id, original_judgment_id, later_judgment_id, treatment_type,
+                legal_proposition, supporting_text, paragraph_reference, confidence,
+                verification_status
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                treatment_type = EXCLUDED.treatment_type,
+                legal_proposition = EXCLUDED.legal_proposition,
+                supporting_text = EXCLUDED.supporting_text,
+                paragraph_reference = EXCLUDED.paragraph_reference,
+                confidence = EXCLUDED.confidence,
+                verification_status = EXCLUDED.verification_status
+            """,
+            (
+                treatment["id"],
+                treatment["original_judgment_id"],
+                treatment.get("later_judgment_id"),
+                treatment["treatment_type"],
+                treatment["legal_proposition"],
+                treatment["supporting_text"],
+                treatment.get("paragraph_reference"),
+                float(treatment.get("confidence", 1.0)),
+                treatment.get("verification_status", "EVIDENCE_REVIEW_REQUIRED"),
+            ),
+        )
+    return treatment
+
+
+def get_judgment_treatments_db(original_judgment_id: str) -> list[dict[str, Any]]:
+    with connect() as connection:
+        return connection.execute(
+            """
+            SELECT jt.id, jt.original_judgment_id, jt.later_judgment_id, jt.treatment_type,
+                   jt.legal_proposition, jt.supporting_text, jt.paragraph_reference,
+                   jt.confidence, jt.verification_status, jt.created_at,
+                   j.title AS later_title, j.court AS later_court, j.year AS later_year,
+                   j.citation AS later_citation, j.neutral_citation AS later_neutral_citation,
+                   j.bench_strength AS later_bench_strength, j.source_url AS later_source_url
+            FROM judgment_treatments jt
+            LEFT JOIN judgments j ON j.id = jt.later_judgment_id
+            WHERE jt.original_judgment_id = %s
+            ORDER BY j.year DESC NULLS LAST, jt.created_at DESC
+            """,
+            (original_judgment_id,),
+        ).fetchall()
+
 
 

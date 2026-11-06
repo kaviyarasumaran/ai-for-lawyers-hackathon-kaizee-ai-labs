@@ -5,12 +5,25 @@ import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { formatBytes, getMediaType } from '../../utils/chatUtils'
 
-export default function MessageAttachmentCard({ attachment, isDark, chatId }) {
-  const mediaType = getMediaType(attachment)
+export default function MessageAttachmentCard({ attachment, isDark, chatId, caseId }) {
+  const att = typeof attachment === 'string' ? { id: attachment, name: attachment } : (attachment || {})
+  const mediaType = getMediaType(att)
   const query = chatId ? `?chat_id=${encodeURIComponent(chatId)}` : ''
   const fileUrl =
-    attachment?.url ||
-    (attachment?.id ? `/api/chat/attachments/${encodeURIComponent(attachment.id)}/file${query}` : '#')
+    att.url ||
+    (caseId && att.id
+      ? `/api/cases/${encodeURIComponent(caseId)}/documents/${encodeURIComponent(att.id)}/file`
+      : (att.id ? `/api/chat/attachments/${encodeURIComponent(att.id)}/file${query}` : '#'))
+  const fileName = att.name || att.title || att.id || 'Attached File'
+
+  const handleMediaError = (e) => {
+    if (att.id && !e.target.dataset.fallback) {
+      e.target.dataset.fallback = 'true'
+      e.target.src = caseId
+        ? `/api/cases/${encodeURIComponent(caseId)}/documents/${encodeURIComponent(att.id)}/file`
+        : `/api/chat/attachments/${encodeURIComponent(att.id)}/file`
+    }
+  }
 
   if (mediaType === 'image') {
     return (
@@ -40,13 +53,8 @@ export default function MessageAttachmentCard({ attachment, isDark, chatId }) {
         <Box
           component="img"
           src={fileUrl}
-          alt={attachment.name || 'Attached image'}
-          onError={(e) => {
-            if (attachment.id && !e.target.dataset.fallback) {
-              e.target.dataset.fallback = 'true'
-              e.target.src = `/api/chat/attachments/${encodeURIComponent(attachment.id)}/file`
-            }
-          }}
+          alt={fileName}
+          onError={handleMediaError}
           sx={{
             display: 'block',
             width: '100%',
@@ -56,8 +64,8 @@ export default function MessageAttachmentCard({ attachment, isDark, chatId }) {
           }}
         />
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1 }}>
-          <Typography noWrap sx={{ fontSize: 'caption.fontSize', fontWeight: 600 }}>
-            {attachment.name}
+          <Typography noWrap sx={{ fontSize: 'caption.fontSize', fontWeight: 400 }}>
+            {fileName}
           </Typography>
           <OpenInNewRoundedIcon sx={{ fontSize: 15, opacity: 0.7, ml: 1 }} />
         </Box>
@@ -83,12 +91,12 @@ export default function MessageAttachmentCard({ attachment, isDark, chatId }) {
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <GraphicEqRoundedIcon sx={{ fontSize: 18, color: 'primary.main' }} />
-          <Typography noWrap sx={{ fontSize: 'caption.fontSize', fontWeight: 600, flex: 1 }}>
-            {attachment.name}
+          <Typography noWrap sx={{ fontSize: 'caption.fontSize', fontWeight: 400, flex: 1 }}>
+            {fileName}
           </Typography>
-          {attachment.size ? (
+          {att.size ? (
             <Typography sx={{ fontSize: '0.72rem', color: 'text.secondary' }}>
-              {formatBytes(attachment.size)}
+              {formatBytes(att.size)}
             </Typography>
           ) : null}
         </Box>
@@ -96,12 +104,7 @@ export default function MessageAttachmentCard({ attachment, isDark, chatId }) {
           component="audio"
           controls
           src={fileUrl}
-          onError={(e) => {
-            if (attachment.id && !e.target.dataset.fallback) {
-              e.target.dataset.fallback = 'true'
-              e.target.src = `/api/chat/attachments/${encodeURIComponent(attachment.id)}/file`
-            }
-          }}
+          onError={handleMediaError}
           sx={{ width: '100%', height: 36 }}
         />
       </Paper>
@@ -124,21 +127,16 @@ export default function MessageAttachmentCard({ attachment, isDark, chatId }) {
           component="video"
           controls
           src={fileUrl}
-          onError={(e) => {
-            if (attachment.id && !e.target.dataset.fallback) {
-              e.target.dataset.fallback = 'true'
-              e.target.src = `/api/chat/attachments/${encodeURIComponent(attachment.id)}/file`
-            }
-          }}
+          onError={handleMediaError}
           sx={{ width: '100%', maxHeight: 220, display: 'block', bgcolor: '#000' }}
         />
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1 }}>
-          <Typography noWrap sx={{ fontSize: 'caption.fontSize', fontWeight: 600, flex: 1 }}>
-            {attachment.name}
+          <Typography noWrap sx={{ fontSize: 'caption.fontSize', fontWeight: 400, flex: 1 }}>
+            {fileName}
           </Typography>
-          {attachment.size ? (
+          {att.size ? (
             <Typography sx={{ fontSize: '0.72rem', color: 'text.secondary', ml: 1 }}>
-              {formatBytes(attachment.size)}
+              {formatBytes(att.size)}
             </Typography>
           ) : null}
         </Box>
@@ -146,7 +144,7 @@ export default function MessageAttachmentCard({ attachment, isDark, chatId }) {
     )
   }
 
-  const isPdf = attachment.name?.toLowerCase().endsWith('.pdf')
+  const isPdf = fileName.toLowerCase().endsWith('.pdf')
   return (
     <Paper
       component="a"
@@ -192,11 +190,11 @@ export default function MessageAttachmentCard({ attachment, isDark, chatId }) {
         )}
       </Box>
       <Box sx={{ minWidth: 0, flex: 1 }}>
-        <Typography noWrap sx={{ fontSize: 'caption.fontSize', fontWeight: 600, color: 'text.primary' }}>
-          {attachment.name}
+        <Typography noWrap sx={{ fontSize: 'caption.fontSize', fontWeight: 400, color: 'text.primary' }}>
+          {fileName}
         </Typography>
         <Typography sx={{ fontSize: '0.72rem', color: 'text.secondary' }}>
-          {attachment.size ? formatBytes(attachment.size) : 'Document'} · Click to view
+          {att.size ? formatBytes(att.size) : 'Document'} · Click to view
         </Typography>
       </Box>
       <OpenInNewRoundedIcon sx={{ fontSize: 16, color: 'text.secondary', flex: 'none' }} />

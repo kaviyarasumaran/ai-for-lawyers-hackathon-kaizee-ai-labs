@@ -16,7 +16,7 @@ function CaseworkToolsOverview() {
         <Card
           key={id}
           variant="outlined"
-          sx={{ borderColor: '#e7ebe5', borderRadius: 2.5, boxShadow: 'none' }}
+          sx={{ borderRadius: 2.5, boxShadow: 'none' }}
         >
           <CardActionArea component={Link} to={path} sx={{ height: '100%' }}>
             <CardContent sx={{ display: 'flex', minHeight: 140, alignItems: 'flex-start', gap: 1.5, p: 2 }}>
@@ -29,22 +29,22 @@ function CaseworkToolsOverview() {
                   flex: 'none',
                   placeItems: 'center',
                   borderRadius: 2,
-                  color: '#4e7957',
-                  bgcolor: '#eaf2e9',
+                  color: 'primary.main',
+                  bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(78, 121, 87, 0.15)' : '#eaf2e9',
                   '& svg': { fontSize: 20 },
                 }}
               >
                 <Icon />
               </Box>
               <Box sx={{ minWidth: 0, flex: 1 }}>
-                <Typography sx={{ color: '#354139', fontSize: 'body2.fontSize', fontWeight: 700 }}>
+                <Typography sx={{ color: 'text.primary', fontSize: '0.9375rem', fontWeight: 700 }}>
                   {title}
                 </Typography>
-                <Typography sx={{ mt: 0.75, color: '#818981', fontSize: 'caption.fontSize', lineHeight: 1.7 }}>
+                <Typography sx={{ mt: 0.75, color: 'text.secondary', fontSize: '0.8125rem', lineHeight: 1.6 }}>
                   {description}
                 </Typography>
               </Box>
-              <ArrowForwardRoundedIcon sx={{ mt: 0.25, color: '#879287', fontSize: 17 }} />
+              <ArrowForwardRoundedIcon sx={{ mt: 0.25, color: 'text.secondary', fontSize: 17 }} />
             </CardContent>
           </CardActionArea>
         </Card>

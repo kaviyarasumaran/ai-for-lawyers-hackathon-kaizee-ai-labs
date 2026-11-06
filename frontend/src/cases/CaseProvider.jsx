@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CaseContext } from '../context/CaseContext'
 import {
   createCaseRecord,
@@ -9,7 +9,6 @@ import {
 import {
   deleteCaseDocument,
   deleteChatAttachment,
-  listChatAttachments,
   uploadCaseDocument,
   uploadChatAttachment,
 } from '../api/files'
@@ -30,13 +29,23 @@ import {
   saveChats,
 } from '../store/chatStore'
 
+function mapCaseRecords(records, savedMsgs) {
+  return [
+    { ...defaultCase, documents: [], messages: savedMsgs['default-chat'] ?? [] },
+    ...records.map((r) => ({
+      ...r,
+      chatId: r.chatId ?? r.id,
+      documents: r.documents ?? [],
+      messages: savedMsgs[r.id] ?? [],
+      isDefault: false,
+    })),
+  ]
+}
+
 function CaseProvider({ children }) {
   const initialCaseMessages = useMemo(() => loadSavedCaseMessages(), [])
   const [cases, setCases] = useState(() => [
-    {
-      ...defaultCase,
-      messages: initialCaseMessages['default-chat'] ?? [],
-    },
+    { ...defaultCase, messages: initialCaseMessages['default-chat'] ?? [] },
   ])
   const casesRef = useRef(cases)
   const [isCasesLoading, setIsCasesLoading] = useState(true)
@@ -46,9 +55,7 @@ function CaseProvider({ children }) {
   const [activeChatId, setActiveChatId] = useState(() => {
     const initialChats = loadSavedChats()
     const savedActiveId = loadSavedActiveChatId(initialChats[0]?.id)
-    return initialChats.some((c) => c.id === savedActiveId)
-      ? savedActiveId
-      : initialChats[0]?.id
+    return initialChats.some((c) => c.id === savedActiveId) ? savedActiveId : initialChats[0]?.id
   })
   const chatsRef = useRef(chats)
 
@@ -67,88 +74,88 @@ function CaseProvider({ children }) {
     }
   }, [activeChatId])
 
-  useEffect(() => {
-    let isMounted = true
-    Promise.all([listCases(), listChatAttachments()])
-      .then(([records, chatAttachments]) => {
-        if (!isMounted) return
-        const savedMsgs = loadSavedCaseMessages()
-        setCases([
-          {
-            ...defaultCase,
-            documents: chatAttachments,
-            messages: savedMsgs['default-chat'] ?? [],
-          },
-          ...records.map((record) => ({
-            ...record,
-            chatId: record.chatId ?? record.id,
-            documents: record.documents ?? [],
-            messages: savedMsgs[record.id] ?? [],
-            isDefault: false,
-          })),
-        ])
-      })
-      .catch((error) => {
-        if (isMounted) setCaseError(error.message)
-      })
-      .finally(() => {
-        if (isMounted) setIsCasesLoading(false)
-      })
-
-    return () => {
-      isMounted = false
+  const refreshCases = useCallback(async () => {
+    try {
+      const records = await listCases()
+      setCases(mapCaseRecords(records, loadSavedCaseMessages()))
+    } catch (err) {
+      setCaseError(err.message)
+    } finally {
+      setIsCasesLoading(false)
     }
   }, [])
 
-  // Sync with backend conversations (if available)
   useEffect(() => {
-    let isMounted = true
-    fetchBackendConversations()
-      .then(async (backendConvs) => {
-        if (!isMounted || !Array.isArray(backendConvs) || backendConvs.length === 0) return
+    let ignore = false
+    listCases()
+      .then((records) => {
+        if (!ignore) setCases(mapCaseRecords(records, loadSavedCaseMessages()))
+      })
+      .catch((err) => {
+        if (!ignore) setCaseError(err.message)
+      })
+      .finally(() => {
+        if (!ignore) setIsCasesLoading(false)
+      })
+    return () => {
+      ignore = true
+    }
+  }, [])
 
+  // Sync backend conversations (called on-demand by ChatLayout, never on non-chat pages)
+  const syncBackendConversations = useCallback(async () => {
+    try {
+      const backendConvs = await fetchBackendConversations()
+      if (!Array.isArray(backendConvs) || backendConvs.length === 0) return
+
+      setChats((currentChats) => {
+        let updated = [...currentChats]
         for (const bConv of backendConvs) {
           if (bConv.case_id) continue
 
-          setChats((currentChats) => {
-            const existing = currentChats.find((c) => c.id === bConv.id)
-            if (!existing) {
-              const newChat = {
-                id: bConv.id,
-                title: bConv.title || 'Conversation',
-                messages: [],
-                parentId: null,
-                pinned: Boolean(bConv.pinned),
-                createdAt: bConv.created_at || new Date().toISOString(),
-                lastActivityAt: bConv.updated_at || new Date().toISOString(),
-              }
-              return [...currentChats, newChat]
-            }
-            return currentChats
-          })
-
-          const msgRecords = await fetchBackendConversationMessages(bConv.id)
-          if (isMounted && Array.isArray(msgRecords) && msgRecords.length > 0) {
-            setChats((currentChats) =>
-              currentChats.map((c) => {
-                if (c.id === bConv.id && c.messages.length === 0) {
-                  return {
-                    ...c,
-                    messages: msgRecords.map(mapBackendMessageToChat),
-                  }
-                }
-                return c
-              }),
-            )
+          const existing = updated.find((c) => c.id === bConv.id)
+          if (!existing) {
+            updated.push({
+              id: bConv.id,
+              title: bConv.title || 'Conversation',
+              messages: [],
+              parentId: null,
+              pinned: Boolean(bConv.pinned),
+              createdAt: bConv.created_at || new Date().toISOString(),
+              lastActivityAt: bConv.updated_at || new Date().toISOString(),
+            })
           }
         }
+        return updated
       })
-      .catch(() => {
-        // Backend conversations not available; local storage remains authoritative
-      })
+    } catch {
+      // Backend conversations not available; local storage remains authoritative
+    }
+  }, [])
 
-    return () => {
-      isMounted = false
+  // Lazy-load messages only for active chat when opened and empty
+  const loadChatMessages = useCallback(async (chatId) => {
+    if (!chatId) return
+    const active = chatsRef.current.find((c) => c.id === chatId)
+    if (active && active.messages.length === 0) {
+      try {
+        const msgRecords = await fetchBackendConversationMessages(chatId)
+        if (Array.isArray(msgRecords) && msgRecords.length > 0) {
+          setChats((currentChats) =>
+            currentChats.map((c) => {
+              if (c.id === chatId && c.messages.length === 0) {
+                return {
+                  ...c,
+                  messages: msgRecords.map(mapBackendMessageToChat),
+                }
+              }
+              return c
+            }),
+          )
+        }
+      } catch {
+        // ignore
+      }
     }
   }, [])
 
@@ -426,24 +433,30 @@ function CaseProvider({ children }) {
       },
       async removeCaseFile(caseId, fileId) {
         const currentCase = casesRef.current.find((item) => item.id === caseId)
-        const file = currentCase?.documents.find((item) => item.id === fileId)
-        if (!file) return
-        if (currentCase.isDefault) await deleteChatAttachment(fileId, activeChatId || 'default-chat')
-        else await deleteCaseDocument(caseId, fileId)
-
+        const file = currentCase?.documents?.find((item) => item.id === fileId)
+        try {
+          if (file) {
+            if (currentCase?.isDefault) await deleteChatAttachment(fileId, activeChatId || 'default-chat')
+            else await deleteCaseDocument(caseId, fileId)
+          } else {
+            await deleteChatAttachment(fileId, activeChatId || caseId)
+          }
+        } catch (err) {
+          console.warn('Backend file deletion notice:', err)
+        }
         setCases((currentCases) =>
           currentCases.map((caseItem) =>
             caseItem.id === caseId
               ? {
                   ...caseItem,
-                  documents: caseItem.documents.filter(
-                    (item) => item.id !== fileId,
-                  ),
+                  documents: (caseItem.documents || []).filter((item) => item.id !== fileId),
                 }
               : caseItem,
           ),
         )
       },
+      syncBackendConversations,
+      loadChatMessages,
       addCaseMessages(caseId, messages) {
         setCases((currentCases) => {
           const next = currentCases.map((caseItem) =>
@@ -464,8 +477,18 @@ function CaseProvider({ children }) {
           return next
         })
       },
+      refreshCases,
+      setCaseCauseList(caseId, causeList) {
+        setCases((prev) =>
+          prev.map((c) =>
+            c.id === caseId
+              ? { ...c, causeList, lastActivityAt: new Date().toISOString() }
+              : c,
+          ),
+        )
+      },
     }),
-    [activeChatId, caseError, cases, chats, isCasesLoading, teamMembers],
+    [activeChatId, caseError, cases, chats, isCasesLoading, teamMembers, syncBackendConversations, loadChatMessages, refreshCases],
   )
 
   return <CaseContext.Provider value={value}>{children}</CaseContext.Provider>

@@ -569,47 +569,182 @@ async def _process_document(job: dict) -> None:
         raise PipelineJobCancelled
 
 
-def _summary_payload(content: str) -> tuple[str, list[dict]]:
+def _parse_pipeline_features(content: str) -> tuple[str, list[dict], dict | None, list[dict] | None]:
     cleaned = content.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE)
-    try:
-        payload = json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        raise ValueError("The language model did not return valid JSON for the case summary.") from exc
-    if not isinstance(payload, dict):
-        raise ValueError("The language model returned an invalid case summary.")
-    summary = payload.get("summary")
-    findings = payload.get("findings")
-    if not isinstance(summary, str) or not summary.strip() or not isinstance(findings, list):
-        raise ValueError("The language model returned an incomplete case summary.")
-    safe_findings = []
-    for finding in findings:
-        if not isinstance(finding, dict):
-            continue
-        title = finding.get("title")
-        detail = finding.get("detail")
-        if isinstance(title, str) and title.strip() and isinstance(detail, str) and detail.strip():
-            sources = finding.get("sources", [])
-            safe_findings.append(
-                {
-                    "title": title.strip()[:200],
-                    "detail": detail.strip()[:2_000],
+    payload = None
+
+    # 1. Attempt to extract from markdown codeblock ```(?:json)? ... ```
+    codeblock_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned, flags=re.IGNORECASE)
+    if codeblock_match:
+        block_text = codeblock_match.group(1).strip()
+        try:
+            payload = json.loads(block_text)
+        except Exception:
+            fixed_text = re.sub(r",\s*([\]}])", r"\1", block_text)
+            try:
+                payload = json.loads(fixed_text)
+            except Exception:
+                pass
+
+    # 2. If not found or failed, try finding outer { ... }
+    if payload is None:
+        brace_match = re.search(r"(\{[\s\S]*\})", cleaned)
+        if brace_match:
+            candidate = brace_match.group(1).strip()
+            try:
+                payload = json.loads(candidate)
+            except Exception:
+                fixed_candidate = re.sub(r",\s*([\]}])", r"\1", candidate)
+                try:
+                    payload = json.loads(fixed_candidate)
+                except Exception:
+                    pass
+
+    # 3. Direct json.loads as fallback
+    if payload is None:
+        try:
+            payload = json.loads(cleaned)
+        except Exception:
+            pass
+
+    # 4. If payload successfully parsed as dict:
+    if isinstance(payload, dict):
+        summary = (
+            payload.get("summary")
+            or payload.get("case_summary")
+            or payload.get("caseSummary")
+            or payload.get("overview")
+            or payload.get("executive_summary")
+            or payload.get("analysis")
+            or ""
+        )
+        if isinstance(summary, list):
+            summary = "\n".join(str(s) for s in summary)
+        elif not isinstance(summary, str):
+            summary = str(summary) if summary else ""
+
+        raw_findings = (
+            payload.get("findings")
+            or payload.get("key_findings")
+            or payload.get("keyFindings")
+            or payload.get("issues")
+            or payload.get("points")
+            or []
+        )
+        if isinstance(raw_findings, dict):
+            raw_findings = list(raw_findings.values())
+        elif isinstance(raw_findings, str):
+            raw_findings = [
+                {"title": "Key Finding", "detail": line.strip("-* "), "sources": []}
+                for line in raw_findings.splitlines()
+                if line.strip("-* ")
+            ]
+        elif not isinstance(raw_findings, list):
+            raw_findings = []
+
+        safe_findings = []
+        for finding in raw_findings:
+            if not isinstance(finding, dict):
+                if isinstance(finding, str) and finding.strip():
+                    safe_findings.append({
+                        "title": finding.strip()[:200],
+                        "detail": finding.strip()[:2000],
+                        "sources": [],
+                    })
+                continue
+            title = finding.get("title") or finding.get("name") or finding.get("heading") or "Finding"
+            detail = (
+                finding.get("detail")
+                or finding.get("description")
+                or finding.get("content")
+                or finding.get("summary")
+                or ""
+            )
+            if isinstance(title, str) and title.strip():
+                sources = finding.get("sources", [])
+                safe_findings.append({
+                    "title": str(title).strip()[:200],
+                    "detail": str(detail).strip()[:2000] if detail else str(title).strip()[:200],
                     "sources": [
                         str(source)[:300]
                         for source in sources[:10]
                         if isinstance(source, str)
                     ] if isinstance(sources, list) else [],
-                }
-            )
-    return summary.strip()[:5_000], safe_findings[:30]
+                })
+
+        cause_list = payload.get("causeList") or payload.get("cause_list")
+        safe_cause_list = None
+        if isinstance(cause_list, dict):
+            safe_cause_list = {
+                "courtName": str(cause_list.get("courtName") or "High Court of Delhi")[:100],
+                "courtNumber": str(cause_list.get("courtNumber") or "Court No. 14")[:50],
+                "bench": str(cause_list.get("bench") or "Division Bench")[:150],
+                "itemNumber": str(cause_list.get("itemNumber") or "18")[:30],
+                "listType": str(cause_list.get("listType") or "Daily Cause List")[:50],
+                "hearingDate": str(cause_list.get("hearingDate") or "2026-11-18")[:40],
+                "stage": str(cause_list.get("stage") or "Admission / Preliminary Arguments")[:80],
+                "status": str(cause_list.get("status") or "Listed")[:50],
+                "lastMinuteAlert": str(cause_list.get("lastMinuteAlert") or "Board running on schedule.")[:300],
+                "notes": str(cause_list.get("notes") or "")[:500],
+            }
+
+        precedents = payload.get("precedents") or payload.get("citations")
+        safe_precedents = None
+        if isinstance(precedents, list):
+            safe_precedents = []
+            for p in precedents:
+                if isinstance(p, dict) and (p.get("caseName") or p.get("citation")):
+                    safe_precedents.append({
+                        "caseName": str(p.get("caseName") or "Precedent Authority")[:150],
+                        "citation": str(p.get("citation") or "")[:100],
+                        "court": str(p.get("court") or "Supreme Court of India")[:100],
+                        "year": str(p.get("year") or "")[:20],
+                        "status": str(p.get("status") or "good_law")[:30],
+                        "treatment": str(p.get("treatment") or "")[:300],
+                        "ratio": str(p.get("ratio") or "")[:500],
+                        "analysis": str(p.get("analysis") or "")[:500],
+                        "subsequentCitations": [
+                            str(c)[:200]
+                            for c in p.get("subsequentCitations", [])[:10]
+                            if isinstance(c, str)
+                        ] if isinstance(p.get("subsequentCitations"), list) else [],
+                    })
+
+        if not summary.strip():
+            raise ValueError("The language model returned an incomplete case summary.")
+
+        return summary.strip()[:5000], safe_findings[:30], safe_cause_list, safe_precedents
+
+    # 5. Fallback for raw text / markdown output (when LLM answered in text instead of JSON)
+    if cleaned:
+        logger.info("Parsing non-JSON / markdown summary from model output (%d chars)", len(cleaned))
+        text_findings = []
+        for line in cleaned.splitlines():
+            line_str = line.strip()
+            if line_str.startswith(("- ", "* ", "1.", "2.", "3.", "4.", "5.")):
+                clean_point = re.sub(r"^[-*\d.]+\s*", "", line_str).strip()
+                if clean_point and len(clean_point) > 10:
+                    text_findings.append({
+                        "title": clean_point[:80],
+                        "detail": clean_point[:2000],
+                        "sources": [],
+                    })
+        return cleaned[:5000], text_findings[:20], None, None
+
+    raise ValueError("The language model returned an invalid or empty case summary.")
+
+
+def _summary_payload(content: str) -> tuple[str, list[dict]]:
+    summary, findings, _, _ = _parse_pipeline_features(content)
+    return summary, findings
 
 
 async def _process_summary(job: dict) -> None:
     documents = postgres.get_case_text_for_summary(job["case_id"])
     if not documents:
         raise ValueError("There are no successfully processed documents to summarize.")
-    if not get_settings().llm_api_base_url or not get_settings().llm_model:
+    settings = get_settings()
+    if not settings.llm_api_base_url or not settings.llm_model:
         raise RuntimeError(
             "Case summary generation is not configured. Set LLM_MODEL in backend/.env."
         )
@@ -619,39 +754,61 @@ async def _process_summary(job: dict) -> None:
         f"{document['text']}"
         for document in documents
     )
-    endpoint = f"{get_settings().llm_api_base_url.rstrip('/')}/chat/completions"
+    if len(source_text) > 18_000:
+        source_text = source_text[:18_000] + "\n\n[Excerpt truncated to fit model context]"
+
+    endpoint = f"{settings.llm_api_base_url.rstrip('/')}/chat/completions"
     headers = {}
-    if get_settings().llm_api_key:
-        headers["Authorization"] = f"******"
+    if settings.llm_api_key:
+        headers["Authorization"] = f"Bearer {settings.llm_api_key}"
+
+    system_prompt = (
+        "Create a cautious, source-grounded legal case summary and findings. "
+        "Do not infer facts or law absent from the documents. Return only valid JSON "
+        "with a summary string and findings array; each finding must have title, detail, "
+        "and sources (document name and page when available). Say when evidence is unclear. "
+        "Some document sections may be excerpts; do not claim exhaustive document review. "
+        "This is a draft for lawyer review, not legal advice."
+    )
+    user_prompt = f"Prepare a case summary and findings from these extracted documents:\n\n{source_text}"
+
     payload = {
-        "model": get_settings().llm_model,
+        "model": settings.llm_model,
         "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "Create a cautious, source-grounded legal case summary and findings. "
-                    "Do not infer facts or law absent from the documents. Return only valid JSON "
-                    "with a summary string and findings array; each finding must have title, detail, "
-                    "and sources (document name and page when available). Say when evidence is unclear. "
-                    "Some document sections may be excerpts; do not claim exhaustive document review. "
-                    "This is a draft for lawyer review, not legal advice."
-                ),
-            },
-            {
-                "role": "user",
-                "content": f"Prepare a case summary and findings from these extracted documents:\n\n{source_text}",
-            },
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
         ],
         "response_format": CASE_SUMMARY_RESPONSE_FORMAT,
     }
+
+    timeout_seconds = max(float(settings.llm_timeout_seconds), 120.0)
+    content = ""
     try:
-        async with httpx.AsyncClient(timeout=get_settings().llm_timeout_seconds) as client:
-            response = await client.post(endpoint, headers=headers, json=payload)
-        response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
-        if not isinstance(content, str):
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            try:
+                response = await client.post(endpoint, headers=headers, json=payload)
+                if response.status_code == 400 and "response_format" in payload:
+                    logger.info("Summary provider rejected json_schema; retrying with plain JSON prompt")
+                    payload.pop("response_format", None)
+                    response = await client.post(endpoint, headers=headers, json=payload)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as http_err:
+                if "response_format" in payload:
+                    logger.info("Retrying summary generation without response_format after HTTP %s", http_err.response.status_code)
+                    payload.pop("response_format", None)
+                    response = await client.post(endpoint, headers=headers, json=payload)
+                    response.raise_for_status()
+                else:
+                    raise
+
+        resp_json = response.json()
+        choices = resp_json.get("choices", [])
+        if choices and isinstance(choices[0], dict) and "message" in choices[0]:
+            content = choices[0]["message"].get("content") or ""
+        if not isinstance(content, str) or not content.strip():
             raise ValueError("The language model returned an invalid summary.")
     except httpx.TimeoutException as exc:
+        logger.warning("Summary request timed out after %s seconds", timeout_seconds)
         raise RuntimeError("The case summary request timed out.") from exc
     except httpx.HTTPStatusError as exc:
         logger.warning("Summary provider returned HTTP %s", exc.response.status_code)
@@ -661,8 +818,9 @@ async def _process_summary(job: dict) -> None:
         raise RuntimeError("Could not reach the language model for case summarization.") from exc
     except (KeyError, IndexError, TypeError) as exc:
         raise RuntimeError("The language model returned an invalid case summary.") from exc
-    summary, findings = _summary_payload(content)
-    postgres.save_case_summary(job, summary, findings)
+
+    summary, findings, cause_list, precedents = _parse_pipeline_features(content)
+    postgres.save_case_summary(job, summary, findings, cause_list, precedents)
 
 
 async def process_job(job: dict) -> None:

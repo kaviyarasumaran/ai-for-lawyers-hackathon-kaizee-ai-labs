@@ -42,7 +42,7 @@ export default function ChatEmptyState({ currentCase, isDark }) {
             mb: 1.5,
           }}
         >
-          <Typography sx={{ color: 'primary.main', fontSize: 'caption.fontSize', fontWeight: 700 }}>
+          <Typography sx={{ color: 'primary.main', fontSize: 'caption.fontSize', fontWeight: 500 }}>
             {currentCase.matterType}
           </Typography>
           {currentCase.parties && (
@@ -57,7 +57,7 @@ export default function ChatEmptyState({ currentCase, isDark }) {
           mb: 1.75,
           color: '#62836c',
           fontSize: 'caption.fontSize',
-          fontWeight: 700,
+          fontWeight: 600,
           letterSpacing: 1.65,
           '@media (max-height:900px) and (min-width:601px)': { mb: 1.5 },
         }}

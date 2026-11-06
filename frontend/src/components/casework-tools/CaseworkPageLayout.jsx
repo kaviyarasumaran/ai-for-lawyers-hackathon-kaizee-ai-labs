@@ -1,73 +1,37 @@
-import { useState } from 'react'
 import { Box, Button, Paper, Typography } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined'
-import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
 import { Link } from '@tanstack/react-router'
-import ChatSidebar from '../chat/ChatSidebar'
 
 function CaseworkPageLayout({ tool, children }) {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const ToolIcon = tool?.icon
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: '#fbfbf9' }}>
-      <ChatSidebar
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-      />
+    <Box sx={{ width: '100%', maxWidth: 1320, mx: 'auto', pt: { xs: 1, md: 2 }, pb: 6 }}>
       <Box
-        component="main"
         sx={{
           display: 'flex',
-          minWidth: 0,
-          flex: 1,
-          flexDirection: 'column',
-          px: { xs: 2, sm: 3, lg: 5 },
-          pb: 4,
+          alignItems: 'center',
+          gap: 1,
+          mb: 2.5,
         }}
       >
-        <Box
-          component="header"
-          sx={{
-            display: 'flex',
-            minHeight: { xs: 62, md: 73 },
-            alignItems: 'center',
-            gap: 1,
-            borderBottom: '1px solid #efefeb',
-          }}
+        <Button
+          component={Link}
+          to="/casework-tools"
+          startIcon={<ArrowBackRoundedIcon />}
+          sx={{ minWidth: 0, color: 'text.secondary', fontSize: 'caption.fontSize', textTransform: 'none' }}
         >
-          <Button
-            aria-label="Open navigation"
-            onClick={() => setIsSidebarOpen(true)}
-            sx={{
-              display: { xs: 'inline-flex', md: 'none' },
-              minWidth: 32,
-              width: 32,
-              height: 32,
-              p: 0,
-              color: '#777f78',
-            }}
-          >
-            <MenuRoundedIcon />
-          </Button>
-          <Button
-            component={Link}
-            to="/casework-tools"
-            startIcon={<ArrowBackRoundedIcon />}
-            sx={{ minWidth: 0, color: '#777f78', fontSize: 'caption.fontSize' }}
-          >
-            Casework tools
-          </Button>
-          <Typography sx={{ color: '#b0b5ae', fontSize: 'caption.fontSize' }}>/</Typography>
-          <Typography noWrap sx={{ color: '#303632', fontSize: 'body2.fontSize', fontWeight: 700 }}>
-            {tool?.title ?? 'Overview'}
-          </Typography>
-        </Box>
+          Casework tools
+        </Button>
+        <Typography sx={{ color: 'text.disabled', fontSize: 'caption.fontSize' }}>/</Typography>
+        <Typography noWrap sx={{ color: 'text.primary', fontSize: 'caption.fontSize', fontWeight: 600 }}>
+          {tool?.title ?? 'Overview'}
+        </Typography>
+      </Box>
 
-        <Box sx={{ width: '100%', maxWidth: 1050, mx: 'auto', pt: { xs: 3, md: 5 } }}>
-          {tool ? (
+      {tool ? (
             <>
               <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 3 }}>
                 <Box
@@ -79,8 +43,8 @@ function CaseworkPageLayout({ tool, children }) {
                     flex: 'none',
                     placeItems: 'center',
                     borderRadius: 2.5,
-                    color: '#4e7957',
-                    bgcolor: '#eaf2e9',
+                    color: 'primary.main',
+                    bgcolor: 'action.hover',
                     '& svg': { fontSize: 23 },
                   }}
                 >
@@ -90,16 +54,16 @@ function CaseworkPageLayout({ tool, children }) {
                   <Typography
                     component="h1"
                     sx={{
-                      color: '#27312b',
+                      color: 'text.primary',
                       fontFamily: 'Manrope, sans-serif',
-                      fontSize: { xs: 23, md: 29 },
+                      fontSize: { xs: '1.35rem', sm: '1.625rem' },
                       fontWeight: 700,
-                      letterSpacing: '-.8px',
+                      letterSpacing: '-0.5px',
                     }}
                   >
                     {tool.title}
                   </Typography>
-                  <Typography sx={{ mt: 0.75, color: '#7f8880', fontSize: 'body2.fontSize', lineHeight: 1.7 }}>
+                  <Typography sx={{ mt: 0.5, color: 'text.secondary', fontSize: '0.875rem', lineHeight: 1.6 }}>
                     {tool.description}
                   </Typography>
                 </Box>
@@ -112,14 +76,14 @@ function CaseworkPageLayout({ tool, children }) {
                   gap: 1.25,
                   p: 2,
                   mb: 2.5,
-                  borderColor: '#e3eae1',
                   borderRadius: 2.5,
-                  bgcolor: '#f8fbf6',
+                  bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(78, 121, 87, 0.1)' : '#f8fbf6',
+                  borderColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(78, 121, 87, 0.25)' : '#e3eae1',
                   boxShadow: 'none',
                 }}
               >
-                <AutoAwesomeOutlinedIcon sx={{ mt: 0.125, color: '#64816a', fontSize: 18 }} />
-                <Typography sx={{ color: '#59665b', fontSize: 'body2.fontSize', lineHeight: 1.7 }}>
+                <AutoAwesomeOutlinedIcon sx={{ mt: 0.125, color: 'primary.main', fontSize: 18 }} />
+                <Typography sx={{ color: 'text.secondary', fontSize: '0.875rem', lineHeight: 1.6 }}>
                   {tool.detail}
                 </Typography>
               </Paper>
@@ -130,23 +94,21 @@ function CaseworkPageLayout({ tool, children }) {
               <Typography
                 component="h1"
                 sx={{
-                  color: '#27312b',
+                  color: 'text.primary',
                   fontFamily: 'Manrope, sans-serif',
-                  fontSize: { xs: 25, md: 31 },
+                  fontSize: { xs: '1.35rem', sm: '1.625rem' },
                   fontWeight: 700,
-                  letterSpacing: '-1px',
+                  letterSpacing: '-0.5px',
                 }}
               >
                 Casework tools
               </Typography>
-              <Typography sx={{ mt: 0.75, mb: 3, color: '#858c85', fontSize: 'body2.fontSize' }}>
+              <Typography sx={{ mt: 0.5, mb: 3, color: 'text.secondary', fontSize: '0.875rem', lineHeight: 1.6 }}>
                 Organize the work around your case files, dates, tasks, and existing systems.
               </Typography>
               {children}
             </Box>
           )}
-        </Box>
-      </Box>
     </Box>
   )
 }

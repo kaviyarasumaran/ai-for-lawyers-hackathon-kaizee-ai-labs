@@ -56,10 +56,10 @@ function MessagesInbox() {
           }}
         >
           <Box sx={{ px: 2, py: 1.75, borderBottom: '1px solid', borderColor: 'divider' }}>
-            <Typography variant="subtitle1" sx={{ color: 'text.primary' }}>
+            <Typography sx={{ color: 'text.primary', fontWeight: 700, fontSize: '0.9375rem' }}>
               Team conversations
             </Typography>
-            <Typography sx={{ mt: 0.25, color: 'text.secondary', fontSize: 'caption.fontSize' }}>
+            <Typography sx={{ mt: 0.25, color: 'text.secondary', fontSize: '0.75rem' }}>
               {teamMembers.length} workspace {teamMembers.length === 1 ? 'member' : 'members'}
             </Typography>
           </Box>

@@ -54,11 +54,9 @@ def determine_knowledge_scope(
     if request.knowledge_scope:
         return request.knowledge_scope
 
-    # If case_id is provided
+    # If case_id is provided, both case documents and general KB are accessible
     if request.case_id:
-        if question_type in {"legal_research", "fact_law_comparison"}:
-            return "combined"
-        return "case"
+        return "combined"
 
     return "global"
 

@@ -29,7 +29,7 @@ export function SourceTriggerButton({ count, onClick, isDark }) {
         borderRadius: 999,
         textTransform: 'none',
         fontSize: '0.78rem',
-        fontWeight: 600,
+        fontWeight: 500,
         px: 1.5,
         py: 0.35,
         mt: 1.25,
@@ -54,12 +54,13 @@ export function SourceDrawerCard({ index, source, caseId, chatId, isDark }) {
   const [copiedCitation, setCopiedCitation] = useState(false)
 
   const fileUrl = resolveSourceFileUrl(source, caseId, chatId)
-  const isGlobalKb = source.sourceType === 'global_legal_authority' || Boolean(source.section)
+  const isGlobalKb = source.sourceType === 'global_legal_authority' || (!source.sourceType && Boolean(source.section))
+  const isCaseDoc = source.sourceType === 'case_document'
   const typeLabel = isGlobalKb
     ? 'Indian Law Knowledge Base'
-    : source.sourceType === 'case_document'
+    : isCaseDoc
       ? 'Case Document'
-      : 'Uploaded Media'
+      : (source.sourceType === 'chat_attachment' ? 'Uploaded Attachment' : 'Legal Reference')
 
   const snippetText = (source.snippet || source.content || '').trim()
 
@@ -112,13 +113,13 @@ export function SourceDrawerCard({ index, source, caseId, chatId, isDark }) {
               bgcolor: isDark ? '#2a3d2e' : '#eaf2ea',
               color: 'primary.main',
               fontSize: '0.75rem',
-              fontWeight: 700,
+              fontWeight: 600,
               flex: 'none',
             }}
           >
             {index}
           </Box>
-          <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: 'text.primary', lineHeight: 1.3 }}>
+          <Typography sx={{ fontSize: '0.88rem', fontWeight: 600, color: 'text.primary', lineHeight: 1.3 }}>
             {source.name}
           </Typography>
         </Box>
@@ -129,7 +130,7 @@ export function SourceDrawerCard({ index, source, caseId, chatId, isDark }) {
           sx={{
             height: 20,
             fontSize: '0.7rem',
-            fontWeight: 600,
+            fontWeight: 500,
             bgcolor: isDark ? 'rgba(76,175,80,0.18)' : 'rgba(46,125,50,0.08)',
             color: isDark ? '#81c784' : '#1b5e20',
             border: '1px solid',
@@ -147,7 +148,7 @@ export function SourceDrawerCard({ index, source, caseId, chatId, isDark }) {
             label={source.section}
             sx={{
               fontSize: '0.75rem',
-              fontWeight: 700,
+              fontWeight: 500,
               bgcolor: isDark ? 'rgba(33,150,243,0.18)' : 'rgba(25,118,210,0.08)',
               color: isDark ? '#90caf9' : '#0d47a1',
               border: '1px solid',
@@ -156,7 +157,7 @@ export function SourceDrawerCard({ index, source, caseId, chatId, isDark }) {
           />
         )}
         {source.pageStart ? (
-          <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', fontWeight: 500 }}>
+          <Typography sx={{ fontSize: '0.75rem', color: 'text.secondary', fontWeight: 400 }}>
             Page {source.pageStart}
             {source.pageEnd && source.pageEnd !== source.pageStart ? ` - ${source.pageEnd}` : ''}
           </Typography>
@@ -241,7 +242,7 @@ export function SourceDrawerCard({ index, source, caseId, chatId, isDark }) {
             sx={{
               textTransform: 'none',
               fontSize: '0.75rem',
-              fontWeight: 600,
+              fontWeight: 500,
               py: 0.25,
               px: 1.25,
               borderRadius: 1.5,
@@ -368,7 +369,7 @@ export default function SourcesDrawer({ open, sources, caseId, chatId, onClose, 
           onClick={onClose}
           sx={{
             textTransform: 'none',
-            fontWeight: 600,
+            fontWeight: 500,
             fontSize: '0.8rem',
             borderRadius: 1.5,
             px: 2.5,

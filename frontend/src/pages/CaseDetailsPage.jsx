@@ -17,20 +17,17 @@ import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
-import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
 import ReplayRoundedIcon from '@mui/icons-material/ReplayRounded'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import ChatSidebar from '../components/chat/ChatSidebar'
 import { useCases } from '../hooks'
 import { getCasePipeline, restartCasePipeline, retryCasePipeline } from '../api/cases'
-import { caseworkTools } from '../casework-tools/tools'
 import NewCaseDialog from '../cases/NewCaseDialog'
 import CaseActionsDialogs from '../cases/CaseActionsDialogs'
 import CasePipelineAlerts from '../cases/CasePipelineAlerts'
 import CaseDocumentsList from '../cases/CaseDocumentsList'
+import CaseCauseListTrackerCard from '../cases/CaseCauseListTrackerCard'
 import CaseFindingsCard from '../cases/CaseFindingsCard'
 import CaseSummaryCard from '../cases/CaseSummaryCard'
-import CaseConstitutionCard from '../cases/CaseConstitutionCard'
 import { formatDate } from '../utils/formatters'
 
 function CaseDetailsPage() {
@@ -42,8 +39,9 @@ function CaseDetailsPage() {
     caseError,
     clearCaseError,
     deleteCase,
+    removeCaseFile,
+    refreshCases,
   } = useCases()
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [isRestartOpen, setIsRestartOpen] = useState(false)
@@ -133,12 +131,6 @@ function CaseDetailsPage() {
   const userMessageCount = caseItem.messages.filter(
     (message) => message.role === 'user',
   ).length
-  const toolStatus = {
-    'file-summaries': `${caseItem.documents.length} document${caseItem.documents.length === 1 ? '' : 's'}`,
-    deadlines: 'No deadlines tracked',
-    'legal-tasks': 'No tasks extracted',
-    integrations: 'Not connected',
-  }
   const generatedSummary = pipeline ? pipeline.summary : caseItem.generatedSummary
   const findings = pipeline ? pipeline.findings : caseItem.findings ?? []
   const manualSummary = caseItem.manualSummary ?? caseItem.summary
@@ -156,93 +148,61 @@ function CaseDetailsPage() {
   }[pipeline?.status]
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: '#fbfbf9' }}>
-      <ChatSidebar
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-      />
+    <Box sx={{ width: '100%', maxWidth: 1320, mx: 'auto', pt: { xs: 1, md: 2 }, pb: 6 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+        <Button
+          onClick={() => navigate({ to: '/cases' })}
+          startIcon={<ArrowBackRoundedIcon />}
+          sx={{ color: '#777f78', fontSize: 'caption.fontSize', textTransform: 'none' }}
+        >
+          Your cases
+        </Button>
+        <Typography sx={{ color: '#b0b5ae', fontSize: 'caption.fontSize' }}>/</Typography>
+        <Typography noWrap sx={{ minWidth: 0, color: 'text.primary', fontSize: 'caption.fontSize', fontWeight: 600 }}>
+          {caseItem.title}
+        </Typography>
+      </Box>
+
       <Box
-        component="main"
         sx={{
           display: 'flex',
-          minWidth: 0,
-          flex: 1,
-          flexDirection: 'column',
-          px: { xs: 2, sm: 3, lg: 5 },
-          pb: 5,
+          flexWrap: 'wrap',
+          alignItems: { xs: 'flex-start', sm: 'center' },
+          justifyContent: 'space-between',
+          gap: 2,
+          mb: 2.5,
         }}
       >
-        <Box
-          component="header"
-          sx={{
-            display: 'flex',
-            minHeight: { xs: 62, md: 73 },
-            alignItems: 'center',
-            gap: 1,
-            borderBottom: '1px solid #efefeb',
-          }}
-        >
-          <IconButton
-            aria-label="Open navigation"
-            onClick={() => setIsSidebarOpen(true)}
-            sx={{ display: { xs: 'inline-flex', md: 'none' }, ml: -0.5, color: '#777f78' }}
-          >
-            <MenuRoundedIcon />
-          </IconButton>
-          <Button
-            onClick={() => navigate({ to: '/cases' })}
-            startIcon={<ArrowBackRoundedIcon />}
-            sx={{ color: '#777f78', fontSize: 'caption.fontSize' }}
-          >
-            Your cases
-          </Button>
-          <Typography sx={{ color: '#b0b5ae', fontSize: 'caption.fontSize' }}>/</Typography>
-          <Typography noWrap sx={{ minWidth: 0, color: '#303632', fontSize: 'body2.fontSize', fontWeight: 700 }}>
-            {caseItem.title}
-          </Typography>
-        </Box>
-
-        <Box sx={{ width: '100%', maxWidth: 1120, mx: 'auto', pt: { xs: 3, md: 4 } }}>
+        <Box sx={{ display: 'flex', minWidth: 0, alignItems: 'flex-start', gap: 1.5 }}>
           <Box
+            aria-hidden="true"
             sx={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: { xs: 'flex-start', sm: 'center' },
-              justifyContent: 'space-between',
-              gap: 2,
-              mb: 2.5,
+              display: 'grid',
+              width: 46,
+              height: 46,
+              flex: 'none',
+              placeItems: 'center',
+              borderRadius: 2.5,
+              color: '#4e7957',
+              bgcolor: '#eaf2e9',
             }}
           >
-            <Box sx={{ display: 'flex', minWidth: 0, alignItems: 'flex-start', gap: 1.5 }}>
-              <Box
-                aria-hidden="true"
-                sx={{
-                  display: 'grid',
-                  width: 46,
-                  height: 46,
-                  flex: 'none',
-                  placeItems: 'center',
-                  borderRadius: 2.5,
-                  color: '#4e7957',
-                  bgcolor: '#eaf2e9',
-                }}
-              >
-                <FolderOutlinedIcon />
-              </Box>
-              <Box sx={{ minWidth: 0 }}>
-                <Typography
-                  component="h1"
-                  sx={{
-                    color: '#27312b',
-                    fontFamily: 'Manrope, sans-serif',
-                    fontSize: { xs: 24, md: 30 },
-                    fontWeight: 700,
-                    letterSpacing: '-1px',
-                    overflowWrap: 'anywhere',
-                  }}
-                >
-                  {caseItem.title}
-                </Typography>
+            <FolderOutlinedIcon />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography
+              component="h1"
+              sx={{
+                fontSize: { xs: '1.35rem', sm: '1.625rem' },
+                fontWeight: 700,
+                fontFamily: 'Manrope, sans-serif',
+                color: 'text.primary',
+                letterSpacing: '-0.5px',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {caseItem.title}
+            </Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.75, mt: 0.75 }}>
                   <Chip
                     label={caseItem.status}
@@ -382,61 +342,24 @@ function CaseDetailsPage() {
                 pipelineIsActive={pipelineIsActive}
                 onOpenCaseChat={openCaseChat}
               />
-
-              <CaseDocumentsList
-                documents={caseItem.documents}
-                documentPipelineById={documentPipelineById}
-              />
             </Box>
 
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-              <CaseConstitutionCard onOpenCaseChat={openCaseChat} />
-
-              <Paper
-                component="section"
-                variant="outlined"
-                sx={{ p: { xs: 1.75, sm: 2 }, borderColor: '#e8eae5', borderRadius: 2.5, boxShadow: 'none' }}
-              >
-                <Typography sx={{ color: '#303a32', fontSize: 'body2.fontSize', fontWeight: 700 }}>
-                  Casework tools
-                </Typography>
-                <Typography sx={{ mt: 0.5, mb: 1.25, color: '#858c85', fontSize: 'caption.fontSize' }}>
-                  Case-specific tools and their current data.
-                </Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-                  {caseworkTools.map(({ id, title, path, icon: ToolIcon }) => (
-                    <Paper
-                      key={id}
-                      variant="outlined"
-                      sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, borderColor: '#eff0ec', borderRadius: 1.75, boxShadow: 'none' }}
-                    >
-                      <Box sx={{ display: 'grid', width: 28, height: 28, flex: 'none', placeItems: 'center', borderRadius: 1.25, color: '#64816a', bgcolor: '#eef4ed' }}>
-                        <ToolIcon sx={{ fontSize: 15 }} />
-                      </Box>
-                      <Box sx={{ minWidth: 0, flex: 1 }}>
-                        <Typography sx={{ color: '#48524a', fontSize: 'caption.fontSize', fontWeight: 700 }}>
-                          {title}
-                        </Typography>
-                        <Typography sx={{ mt: 0.2, color: '#929992', fontSize: 'caption.fontSize' }}>
-                          {toolStatus[id]}
-                        </Typography>
-                      </Box>
-                      <Button
-                        onClick={() => navigate({ to: path })}
-                        aria-label={`Open ${title}`}
-                        sx={{ minWidth: 0, px: 0.5, fontSize: 'caption.fontSize' }}
-                      >
-                        Open
-                      </Button>
-                    </Paper>
-                  ))}
-                </Box>
-              </Paper>
+              <CaseCauseListTrackerCard
+                caseItem={caseItem}
+                onCaseUpdated={() => {
+                  setPipelineRefresh((v) => v + 1)
+                  if (refreshCases) refreshCases()
+                }}
+              />
+              <CaseDocumentsList
+                documents={caseItem.documents}
+                documentPipelineById={documentPipelineById}
+                onRemoveDocument={(docId) => removeCaseFile(caseItem.id, docId)}
+              />
             </Box>
           </Box>
-        </Box>
-      </Box>
-      <NewCaseDialog
+        <NewCaseDialog
         key={caseItem.id}
         open={isEditOpen}
         caseItem={caseItem}

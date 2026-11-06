@@ -14,14 +14,24 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import pipeline, postgres
+from app.cause_list_pipeline import run_cause_list_scheduler
 from app.config import get_settings
 from app.database import close_database, get_database
 from app.model_manager import is_model_loaded, load_model
 from app.pipeline import create_embeddings
 from app.routers.cases import router as cases_router
+from app.routers.cause_list import router as cause_list_router
 from app.routers.chat_files import router as chat_files_router
 from app.routers.chat_v1 import router as chat_v1_router
+from app.routers.judgment_validity import router as judgment_validity_router
+from app.routers.judgment_v1 import router as judgment_v1_router
 from app.routers.knowledge_base import router as knowledge_base_router
+from app.retrieval.kb_authorities import (
+    CORE_INDIAN_LAW_KB_AUTHORITIES,
+    filter_used_sources,
+    match_core_kb_authorities,
+    search_all_knowledge_base,
+)
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -29,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
-    content: str = Field(min_length=1, max_length=20_000)
+    content: str = Field(default="", max_length=20_000)
     attachments: list[dict[str, Any]] | None = Field(default=None)
 
 
@@ -61,10 +71,10 @@ class ChatRequest(BaseModel):
 
             msg = data.get("message")
             raw_messages = data.get("messages")
-            if not raw_messages and msg and str(msg).strip():
+            if not raw_messages and ((msg and str(msg).strip()) or data.get("attachments") or data.get("attachment_ids")):
                 data["messages"] = [{
                     "role": "user",
-                    "content": str(msg).strip(),
+                    "content": str(msg).strip() if msg else "",
                     "attachments": data.get("attachments") or [],
                 }]
             elif isinstance(raw_messages, list):
@@ -72,14 +82,27 @@ class ChatRequest(BaseModel):
                 for m in raw_messages:
                     if isinstance(m, dict):
                         content = str(m.get("content") or "").strip()
-                        if content:
+                        attachments = m.get("attachments") or []
+                        if content or attachments:
                             role = m.get("role", "user")
                             if role not in {"user", "assistant", "system"}:
                                 role = "user"
                             cleaned.append({
                                 "role": role,
-                                "content": content,
-                                "attachments": m.get("attachments") or [],
+                                "content": str(m.get("content") or ""),
+                                "attachments": attachments,
+                            })
+                    elif hasattr(m, "content") or hasattr(m, "attachments"):
+                        content = str(getattr(m, "content", "") or "").strip()
+                        attachments = getattr(m, "attachments", []) or []
+                        if content or attachments:
+                            role = getattr(m, "role", "user")
+                            if role not in {"user", "assistant", "system"}:
+                                role = "user"
+                            cleaned.append({
+                                "role": role,
+                                "content": str(getattr(m, "content", "") or ""),
+                                "attachments": attachments,
                             })
                 data["messages"] = cleaned
         return data
@@ -152,6 +175,7 @@ def _format_sources(raw_sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "url": url,
             "snippet": clean_snippet,
         })
+
     return formatted
 
 
@@ -288,7 +312,15 @@ async def lifespan(_: FastAPI):
                 await load_model(settings.llm_model, settings.llm_api_base_url, settings.llm_api_key)
         except Exception:
             logger.debug("Startup chat LLM pre-check deferred", exc_info=True)
+    cause_list_stop_event = asyncio.Event()
+    cause_list_scheduler_task = asyncio.create_task(run_cause_list_scheduler(cause_list_stop_event))
     yield
+    cause_list_stop_event.set()
+    cause_list_scheduler_task.cancel()
+    try:
+        await cause_list_scheduler_task
+    except asyncio.CancelledError:
+        pass
     if pipeline_worker_task:
         pipeline_stop_event.set()
         pipeline.notify_job_available()
@@ -312,9 +344,12 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "Cache-Control", "Accept"],
 )
 app.include_router(cases_router)
+app.include_router(cause_list_router)
 app.include_router(chat_files_router)
 app.include_router(knowledge_base_router)
 app.include_router(chat_v1_router)
+app.include_router(judgment_validity_router)
+app.include_router(judgment_v1_router)
 
 
 @app.get("/")
@@ -479,13 +514,16 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
     context_messages = []
     effective_chat_id = request.chatId or (request.caseId if request.caseId else "default-chat")
 
-    # 1. ATTACHMENT EXTRACTION & DIRECT CONTEXT INJECTION
-    # Extract any staged or explicitly referenced attachments when the user clicks Send
-    direct_attachment_sources: list[dict[str, Any]] = []
+    # 1. ATTACHMENT EXTRACTION, CHUNKING & VECTOR EMBEDDING PIPELINE
+    # Any uploaded/staged chat attachments are processed via OCR/parsers, chunked,
+    # embedded using the embedding model, and stored into the database (chat_chunks table).
+    # We do NOT dump the raw document directly to the main model; instead we store the chunks & embeddings
+    # and retrieve only the semantically relevant chunks for the user's question.
+    target_attachment_ids: set[str] = set()
+    candidate_attachments: list[dict[str, Any]] = []
     try:
         from app.routers.chat_files import get_attachment_bytes
 
-        target_attachment_ids: set[str] = set()
         if request.attachment_ids:
             target_attachment_ids.update(request.attachment_ids)
 
@@ -496,7 +534,6 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
                     target_attachment_ids.add(str(att["id"]))
 
         # Gather attachments from PostgreSQL and MongoDB
-        candidate_attachments: list[dict[str, Any]] = []
         if postgres.case_migration_ready:
             try:
                 candidate_attachments = postgres.get_staged_chat_attachments(
@@ -539,7 +576,7 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
                         candidate_attachments.append(att)
                         known_ids.add(str(att.get("id")))
 
-        # Process each attachment with OCR/extraction if not completed, and extract its chunks
+        # Process each attachment with OCR/extraction if not completed, chunk & embed via embedding model
         for att in candidate_attachments:
             att_id = str(att.get("id") or "")
             att_chat_id = att.get("chat_id")
@@ -549,10 +586,7 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
             att_path = att.get("path")
             pipeline_status = att.get("pipeline_status") or att.get("pipelineStatus")
 
-            chunks_for_att: list[dict[str, Any]] = []
-            extracted_text = att.get("extracted_text") or att.get("extractedText") or ""
-
-            if pipeline_status != "completed" or not extracted_text:
+            if pipeline_status != "completed":
                 try:
                     att_content = await get_attachment_bytes(att_id, att_name, att_path)
                     proc_res = await pipeline.process_chat_attachment(
@@ -562,71 +596,13 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
                         chat_id=effective_chat_id,
                     )
                     if proc_res and proc_res.get("chunks"):
-                        chunks_for_att = proc_res["chunks"]
+                        att["chunks"] = proc_res["chunks"]
                     if proc_res and proc_res.get("extractedText"):
-                        extracted_text = proc_res["extractedText"]
+                        att["extracted_text"] = proc_res["extractedText"]
                 except Exception as exc:
                     logger.warning("Could not process staged chat attachment %s: %s", att_id, exc)
-
-            if not chunks_for_att and postgres.case_migration_ready and att_id:
-                try:
-                    chunks_for_att = postgres.get_attachment_chunks(att_id)
-                except Exception:
-                    pass
-
-            if not chunks_for_att and isinstance(att.get("chunks"), list):
-                chunks_for_att = att["chunks"]
-
-            if chunks_for_att:
-                for c in chunks_for_att[:10]:
-                    direct_attachment_sources.append({
-                        "id": str(c.get("id") or att_id or uuid.uuid4()),
-                        "document_id": att_id,
-                        "name": att_name,
-                        "section": c.get("section") or "",
-                        "page_start": c.get("page_start") or c.get("pageStart", 1),
-                        "page_end": c.get("page_end") or c.get("pageEnd", 1),
-                        "content": c.get("content", ""),
-                        "source_type": "chat_attachment",
-                        "url": f"/api/chat/attachments/{att_id}/file" if att_id else "",
-                    })
-            elif extracted_text:
-                direct_attachment_sources.append({
-                    "id": str(att_id or uuid.uuid4()),
-                    "document_id": att_id,
-                    "name": att_name,
-                    "section": "",
-                    "page_start": 1,
-                    "page_end": 1,
-                    "content": extracted_text[:4000],
-                    "source_type": "chat_attachment",
-                    "url": f"/api/chat/attachments/{att_id}/file" if att_id else "",
-                })
     except Exception as exc:
         logger.warning("Error processing staged chat attachments: %s", exc, exc_info=True)
-
-    if direct_attachment_sources:
-        attachment_context = "\n\n".join(
-            f"Attached Document: {s['name']} (Page {s['page_start']}-{s['page_end']}):\n{s['content']}"
-            for s in direct_attachment_sources
-        )
-        context_messages.append(
-            {
-                "role": "system",
-                "content": (
-                    "Attached Document(s) and Media Uploaded by User in this conversation:\n"
-                    f"{attachment_context}\n\n"
-                    "CRITICAL INSTRUCTION: The user has attached the document(s) above for this query. "
-                    "Directly analyze and answer the user's question using the content and text of these attached documents. "
-                    "Under NO circumstances should you ask the user to upload or attach the document; its full content is provided right above.\n"
-                    "Audio/Media Guidance: If an attached audio or video file contains an '[Audio Transcription]' or '[Video Transcription]', "
-                    "treat that transcribed text as the exact spoken content of the recording and analyze it directly. "
-                    "If an audio or video file indicates that spoken words could not be transcribed (e.g. 'Notice: Spoken audio words could not be automatically transcribed'), "
-                    "clearly and politely inform the user that the audio file was received but could not be transcribed automatically, and invite them to share what was said "
-                    "or summarize the question so you can assist them, instead of repeatedly asking for questions without explanation."
-                ),
-            }
-        )
 
     if request.caseId:
         case_record = None
@@ -644,9 +620,8 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
                 raise HTTPException(status_code=404, detail="Case not found.")
 
             user_question = next(
-                message.content
-                for message in reversed(request.messages)
-                if message.role == "user"
+                (message.content for message in reversed(request.messages) if message.role == "user" and message.content and message.content.strip()),
+                "Please analyze the attached document.",
             )
             clean_question = normalize_legal_query(user_question)
             is_party_query = bool(re.search(
@@ -659,57 +634,100 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
             if is_party_query:
                 search_query = f"{clean_question} petitioner respondent parties cause title memo"
 
+            query_embedding = None
+            if not should_skip_chat_query_embedding():
+                try:
+                    query_embedding = (await asyncio.wait_for(
+                        create_embeddings([search_query], query=True),
+                        timeout=3.0,
+                    ))[0]
+                except Exception:
+                    logger.debug("Embedding creation timed out or failed; falling back to keyword search", exc_info=True)
+
+            case_sources: list[dict[str, Any]] = []
             if pipeline_status and pipeline_status.get("processedDocuments"):
-                query_embedding = None
-                if not should_skip_chat_query_embedding():
-                    try:
-                        query_embedding = (await asyncio.wait_for(
-                            create_embeddings([search_query], query=True),
-                            timeout=3.0,
-                        ))[0]
-                    except Exception:
-                        logger.debug("Case embedding creation timed out or failed; falling back to keyword search", exc_info=True)
-                sources = await run_in_threadpool(
+                case_sources = await run_in_threadpool(
                     postgres.search_case_chunks,
                     request.caseId,
                     search_query,
                     query_embedding,
                 )
 
-                if is_party_query or len(sources) < 2:
+                if is_party_query or len(case_sources) < 2:
                     try:
                         header_chunks = await run_in_threadpool(postgres.get_case_header_chunks, request.caseId, 2)
-                        existing_ids = {s.get("chunk_id") for s in sources if s.get("chunk_id")}
+                        existing_ids = {s.get("chunk_id") for s in case_sources if s.get("chunk_id")}
                         merged = [h for h in header_chunks if h.get("chunk_id") not in existing_ids]
-                        merged.extend(sources)
-                        sources = merged[:5]
+                        merged.extend(case_sources)
+                        case_sources = merged[:5]
                     except Exception:
                         pass
 
-                # Supplement with Common Indian Law Knowledge Base chunks for statutory analysis
-                if len(sources) < 6:
+            for cs in case_sources:
+                cs["source_type"] = "case_document"
+                cs["sourceType"] = "case_document"
+
+            chat_attachment_sources: list[dict[str, Any]] = []
+            if candidate_attachments or target_attachment_ids:
+                if postgres.case_migration_ready:
                     try:
-                        global_kb_sources = await run_in_threadpool(
-                            postgres.search_global_chunks,
+                        chat_attachment_sources = await run_in_threadpool(
+                            postgres.search_chat_chunks,
+                            effective_chat_id,
                             search_query,
                             query_embedding,
-                            settings.postgres_tenant_id or None,
-                            3,
+                            5,
+                            list(target_attachment_ids) if target_attachment_ids else None,
                         )
-                        for g_source in global_kb_sources:
-                            sources.append({
-                                "id": str(g_source.get("chunk_id") or g_source.get("document_id") or uuid.uuid4()),
-                                "document_id": str(g_source.get("document_id") or ""),
-                                "name": g_source.get("name") or "Indian Law Knowledge Base",
-                                "section": g_source.get("section") or "",
-                                "page_start": g_source.get("page_start", 1),
-                                "page_end": g_source.get("page_end", 1),
-                                "content": g_source.get("content", ""),
-                                "source_type": "global_legal_authority",
-                                "url": g_source.get("url") or (f"/api/knowledge-base/documents/{g_source.get('document_id')}/file" if g_source.get("document_id") else ""),
-                            })
+                        if is_party_query or len(chat_attachment_sources) < 2:
+                            header_chunks = await run_in_threadpool(
+                                postgres.get_chat_header_chunks,
+                                effective_chat_id,
+                                2,
+                                list(target_attachment_ids) if target_attachment_ids else None,
+                            )
+                            existing_ids = {s.get("chunk_id") for s in chat_attachment_sources if s.get("chunk_id")}
+                            merged = [h for h in header_chunks if h.get("chunk_id") not in existing_ids]
+                            merged.extend(chat_attachment_sources)
+                            chat_attachment_sources = merged[:5]
                     except Exception:
-                        logger.debug("Global knowledge base search skipped in case mode", exc_info=True)
+                        pass
+                for cs in chat_attachment_sources:
+                    cs["source_type"] = "chat_attachment"
+                    cs["sourceType"] = "chat_attachment"
+                    if not cs.get("url") and cs.get("attachment_id"):
+                        cs["url"] = f"/api/chat/attachments/{cs['attachment_id']}/file"
+
+            # Both chats can access the general KB! Search general knowledge base for statutory authorities & references
+            global_kb_sources = await search_all_knowledge_base(
+                search_query=search_query,
+                query_embedding=query_embedding,
+                tenant_id=settings.postgres_tenant_id or None,
+                limit=3,
+            )
+
+            sources = chat_attachment_sources + case_sources + global_kb_sources
+
+            # If no case documents found (e.g. empty case), ensure case record itself is a primary source
+            if case_record and not case_sources:
+                case_title = case_record.get("title") or "Case Matter"
+                case_matter = case_record.get("matterType") or "General"
+                case_parties = case_record.get("parties") or "Parties on Record"
+                sources.insert(0, {
+                    "id": f"case-file-{request.caseId}",
+                    "document_id": request.caseId,
+                    "name": f"Case File: {case_title}",
+                    "section": f"{case_matter} | {case_parties}",
+                    "page_start": 1,
+                    "page_end": 1,
+                    "pageStart": 1,
+                    "pageEnd": 1,
+                    "source_type": "case_document",
+                    "sourceType": "case_document",
+                    "url": f"/cases/{request.caseId}",
+                    "content": f"Case Title: {case_title}\nParties: {case_parties}\nMatter Type: {case_matter}\nSummary: {case_record.get('summary') or 'Active matter record.'}",
+                    "snippet": f"Case Record: {case_title} ({case_matter}) involving {case_parties}.",
+                })
         except HTTPException:
             raise
         except Exception as exc:
@@ -734,8 +752,21 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
         if case_meta_parts:
             case_info_block = "Case Information & Key Parties:\n" + "\n".join(f"- {p}" for p in case_meta_parts) + "\n\n"
 
-        if direct_attachment_sources:
-            sources = direct_attachment_sources + sources
+        if chat_attachment_sources:
+            att_context_block = "\n\n".join(
+                f"Excerpt from Attached Document: {s.get('name', 'Document')} (Page {s.get('page_start') or s.get('pageStart', 1)}-{s.get('page_end') or s.get('pageEnd', 1)}):\n{s.get('content', '')}"
+                for s in chat_attachment_sources
+            )
+            context_messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "Relevant Excerpts Retrieved from Attached File(s) (Embedded & Chunks Indexed):\n\n"
+                        f"{att_context_block}\n\n"
+                        "Instruction: Use these retrieved document excerpts to answer the user's question accurately."
+                    ),
+                }
+            )
 
         if sources:
             context = "\n\n".join(
@@ -776,9 +807,8 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
 
         try:
             user_question = next(
-                message.content
-                for message in reversed(request.messages)
-                if message.role == "user"
+                (message.content for message in reversed(request.messages) if message.role == "user" and message.content and message.content.strip()),
+                "Please analyze the attached document.",
             )
             clean_question = normalize_legal_query(user_question)
             is_party_query = bool(re.search(
@@ -790,98 +820,45 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
             if is_party_query:
                 search_query = f"{clean_question} petitioner respondent parties cause title memo"
 
-            if postgres.case_migration_ready:
-                query_embedding = None
-                if not should_skip_chat_query_embedding():
-                    try:
-                        query_embedding = (await asyncio.wait_for(
-                            create_embeddings([search_query], query=True),
-                            timeout=3.0,
-                        ))[0]
-                    except Exception:
-                        logger.debug("Chat chunk embedding creation timed out or failed; falling back to keyword search", exc_info=True)
+            chat_attachment_sources: list[dict[str, Any]] = []
+            query_embedding = None
+            if not should_skip_chat_query_embedding():
                 try:
-                    sources = await run_in_threadpool(
+                    query_embedding = (await asyncio.wait_for(
+                        create_embeddings([search_query], query=True),
+                        timeout=3.0,
+                    ))[0]
+                except Exception:
+                    logger.debug("Chat chunk embedding creation timed out or failed; falling back to keyword search", exc_info=True)
+
+            if postgres.case_migration_ready:
+                try:
+                    chat_attachment_sources = await run_in_threadpool(
                         postgres.search_chat_chunks,
                         effective_chat_id,
                         search_query,
                         query_embedding,
+                        5,
+                        list(target_attachment_ids) if target_attachment_ids else None,
                     )
-                    if is_party_query or len(sources) < 2:
+                    if is_party_query or len(chat_attachment_sources) < 2:
                         try:
-                            header_chunks = await run_in_threadpool(postgres.get_chat_header_chunks, effective_chat_id, 2)
-                            existing_ids = {s.get("chunk_id") for s in sources if s.get("chunk_id")}
-                            merged = [h for h in header_chunks if h.get("chunk_id") not in existing_ids]
-                            merged.extend(sources)
-                            sources = merged[:5]
-                        except Exception:
-                            pass
-
-                    # Supplement with uploaded Knowledge Base global legal chunks
-                    if len(sources) < 5:
-                        try:
-                            global_kb_sources = await run_in_threadpool(
-                                postgres.search_global_chunks,
-                                search_query,
-                                query_embedding,
-                                settings.postgres_tenant_id or None,
-                                5 - len(sources),
+                            header_chunks = await run_in_threadpool(
+                                postgres.get_chat_header_chunks,
+                                effective_chat_id,
+                                2,
+                                list(target_attachment_ids) if target_attachment_ids else None,
                             )
-                            for g_source in global_kb_sources:
-                                sources.append({
-                                    "id": str(g_source.get("chunk_id") or g_source.get("document_id") or uuid.uuid4()),
-                                    "document_id": str(g_source.get("document_id") or ""),
-                                    "name": g_source.get("name") or "Indian Law Knowledge Base",
-                                    "section": g_source.get("section") or "",
-                                    "page_start": g_source.get("page_start", 1),
-                                    "page_end": g_source.get("page_end", 1),
-                                    "content": g_source.get("content", ""),
-                                    "source_type": "global_legal_authority",
-                                    "url": g_source.get("url") or (f"/api/knowledge-base/documents/{g_source.get('document_id')}/file" if g_source.get("document_id") else ""),
-                                })
-                        except Exception:
-                            logger.debug("Global knowledge base search skipped", exc_info=True)
-
-                    if len(sources) < 5:
-                        try:
-                            db = get_database()
-                            kb_cursor = db["knowledge_base_documents"].find({"status": "completed"})
-                            stopwords = {
-                                "what", "kind", "case", "this", "that", "with", "from", "have", "been",
-                                "will", "like", "find", "step", "steps", "solve", "check", "share",
-                                "audio", "voice", "recording", "under", "tell", "show", "help", "please",
-                                "about", "there", "their", "where", "which", "could", "would", "should"
-                            }
-                            meaningful_words = [
-                                w.lower() for w in clean_question.split()
-                                if len(w) > 3 and w.lower() not in stopwords
-                            ]
-                            if meaningful_words:
-                                async for kb_doc in kb_cursor:
-                                    for kb_chunk in kb_doc.get("chunks", []):
-                                        content_text = kb_chunk.get("content", "")
-                                        if any(w in content_text.lower() for w in meaningful_words):
-                                            sources.append({
-                                                "id": str(kb_chunk.get("id") or kb_doc.get("id") or uuid.uuid4()),
-                                                "document_id": kb_doc.get("id"),
-                                                "name": kb_doc.get("name", "Knowledge Base Document"),
-                                                "section": kb_chunk.get("section", ""),
-                                                "page_start": kb_chunk.get("pageStart", 1),
-                                                "page_end": kb_chunk.get("pageEnd", 1),
-                                                "content": content_text,
-                                                "source_type": "global_legal_authority",
-                                                "url": f"/api/knowledge-base/documents/{kb_doc.get('id')}/file" if kb_doc.get("id") else "",
-                                            })
-                                            if len(sources) >= 5:
-                                                break
-                                    if len(sources) >= 5:
-                                        break
+                            existing_ids = {s.get("chunk_id") for s in chat_attachment_sources if s.get("chunk_id")}
+                            merged = [h for h in header_chunks if h.get("chunk_id") not in existing_ids]
+                            merged.extend(chat_attachment_sources)
+                            chat_attachment_sources = merged[:5]
                         except Exception:
                             pass
                 except Exception:
                     logger.debug("PostgreSQL chat chunks search unavailable; trying MongoDB", exc_info=True)
 
-            if not sources:
+            if not chat_attachment_sources:
                 try:
                     db = get_database()
                     cursor = db["chat_attachments"].find({
@@ -893,7 +870,7 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
                             content_text = chunk.get("content", "")
                             words = [w.lower() for w in clean_question.split() if len(w) > 3]
                             if not words or any(w in content_text.lower() for w in words):
-                                sources.append({
+                                chat_attachment_sources.append({
                                     "id": str(chunk.get("id") or doc.get("id") or uuid.uuid4()),
                                     "document_id": doc.get("id"),
                                     "name": doc.get("name", "Chat Attachment"),
@@ -904,17 +881,76 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
                                     "source_type": "chat_attachment",
                                     "url": f"/api/chat/attachments/{doc.get('id')}/file" if doc.get("id") else "",
                                 })
-                                if len(sources) >= 5:
+                                if len(chat_attachment_sources) >= 5:
                                     break
-                        if len(sources) >= 5:
+                        if len(chat_attachment_sources) >= 5:
                             break
                 except Exception:
                     pass
+
+            if not chat_attachment_sources and candidate_attachments:
+                for att in candidate_attachments:
+                    att_id = str(att.get("id") or "")
+                    att_name = att.get("name", "Chat Attachment")
+                    chunks = att.get("chunks") or []
+                    if not chunks and (att.get("extracted_text") or att.get("extractedText")):
+                        raw_t = (att.get("extracted_text") or att.get("extractedText") or "").strip()
+                        if raw_t:
+                            chunks = [{"id": att_id, "content": raw_t, "pageStart": 1, "pageEnd": 1}]
+                    for chunk in chunks[:5]:
+                        content_text = chunk.get("content", "")
+                        chat_attachment_sources.append({
+                            "id": str(chunk.get("id") or att_id or uuid.uuid4()),
+                            "document_id": att_id,
+                            "name": att_name,
+                            "section": chunk.get("section", ""),
+                            "page_start": chunk.get("pageStart", 1),
+                            "page_end": chunk.get("pageEnd", 1),
+                            "content": content_text,
+                            "source_type": "chat_attachment",
+                            "sourceType": "chat_attachment",
+                            "url": f"/api/chat/attachments/{att_id}/file" if att_id else "",
+                        })
+
+            for cs in chat_attachment_sources:
+                cs["source_type"] = "chat_attachment"
+                cs["sourceType"] = "chat_attachment"
+
+            # Both general chat and case-oriented chat have full access to General Knowledge Base:
+            global_kb_sources = await search_all_knowledge_base(
+                search_query=search_query,
+                query_embedding=query_embedding,
+                tenant_id=settings.postgres_tenant_id or None,
+                limit=max(3, 5 - len(chat_attachment_sources)),
+            )
+
+            sources = chat_attachment_sources + global_kb_sources
         except Exception as exc:
             logger.debug("Chat attachment retrieval skipped: %s", exc)
+            sources = await search_all_knowledge_base(
+                search_query=clean_question if 'clean_question' in locals() else "Indian law legal authority",
+                query_embedding=None,
+                tenant_id=settings.postgres_tenant_id or None,
+                limit=3,
+            )
 
-        if direct_attachment_sources:
-            sources = direct_attachment_sources + sources
+        if chat_attachment_sources:
+            att_context_block = "\n\n".join(
+                f"Excerpt from Attached Document: {s.get('name', 'Document')} (Page {s.get('page_start') or s.get('pageStart', 1)}-{s.get('page_end') or s.get('pageEnd', 1)}):\n{s.get('content', '')}"
+                for s in chat_attachment_sources
+            )
+            context_messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "Relevant Excerpts Retrieved from Attached File(s) (Embedded & Chunks Indexed):\n\n"
+                        f"{att_context_block}\n\n"
+                        "CRITICAL INSTRUCTION: The user has attached the document(s) above for this query. "
+                        "Directly analyze and answer the user's question using the content and text of these attached documents. "
+                        "Under NO circumstances should you ask the user to upload or attach the document; its content is provided right above."
+                    ),
+                }
+            )
 
         if sources:
             context = "\n\n".join(
@@ -928,10 +964,10 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
                 {
                     "role": "system",
                     "content": (
-                        "Retrieved chat knowledge base documents & media:\n"
+                        "Retrieved knowledge base documents & legal authorities:\n"
                         f"{context}\n\n"
-                        "Instruction: Answer the user's question directly using the retrieved excerpts above along with "
-                        "the previous conversation history. Faithfully maintain all context, facts, parties, and details "
+                        "Instruction: Answer the user's question directly using the retrieved legal authorities, statutory references, and documents "
+                        "above along with the previous conversation history. Faithfully maintain all context, facts, parties, and details "
                         "established in earlier messages. Do not append a trailing 'Source Citation:' metadata block."
                     ),
                 }
@@ -948,10 +984,12 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
                 }
             )
 
-    clean_history_messages = [
-        {"role": message.role, "content": message.content}
-        for message in request.messages
-    ]
+    clean_history_messages = []
+    for message in request.messages:
+        text = (message.content or "").strip()
+        if not text and message.role == "user" and (message.attachments or request.attachment_ids):
+            text = "Please review and analyze the attached document(s)."
+        clean_history_messages.append({"role": message.role, "content": text or (message.content or "")})
     endpoint = f"{settings.llm_api_base_url.rstrip('/')}/chat/completions"
     payload = {
         "model": settings.llm_model,
@@ -966,10 +1004,6 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
 
     if is_stream:
         async def event_generator() -> AsyncGenerator[str, None]:
-            formatted_sources = _format_sources(sources)
-            if formatted_sources:
-                yield f"data: {json.dumps({'type': 'sources', 'sources': formatted_sources})}\n\n"
-
             stream_payload = {**payload, "stream": True}
             collected_chunks: list[str] = []
             headers = {}
@@ -1026,13 +1060,19 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
                 yield f"data: {json.dumps({'type': 'error', 'detail': 'The model returned an empty response.'})}\n\n"
                 return
 
+            # Strictly filter to chunks that were actually referenced or used in the assistant response
+            used_sources = filter_used_sources(full_reply, sources)
+            formatted_sources = _format_sources(used_sources)
+            if formatted_sources:
+                yield f"data: {json.dumps({'type': 'sources', 'sources': formatted_sources})}\n\n"
+
             if request.chatId and postgres.case_migration_ready:
                 await _persist_conversation_turn(
                     chat_id=request.chatId,
                     case_id=request.caseId,
                     messages=request.messages,
                     reply=full_reply,
-                    sources=sources,
+                    sources=used_sources,
                 )
 
             yield f"data: {json.dumps({'type': 'done', 'reply': full_reply, 'chatId': request.chatId, 'sources': formatted_sources})}\n\n"
@@ -1070,16 +1110,19 @@ async def chat(request: ChatRequest, raw_request: Request) -> Any:
         if not isinstance(reply, str) or not reply.strip():
             raise ValueError("The model returned an empty response.")
 
+        # Strictly filter to chunks that were actually referenced or used in the assistant response
+        used_sources = filter_used_sources(reply, sources)
+        formatted_sources = _format_sources(used_sources)
+
         if request.chatId and postgres.case_migration_ready:
             await _persist_conversation_turn(
                 chat_id=request.chatId,
                 case_id=request.caseId,
                 messages=request.messages,
                 reply=reply,
-                sources=sources,
+                sources=used_sources,
             )
 
-        formatted_sources = _format_sources(sources)
         return ChatResponse(
             reply=reply.strip(),
             model=settings.llm_model,

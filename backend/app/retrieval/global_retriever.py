@@ -29,8 +29,9 @@ async def retrieve_global_knowledge(
             embedding = embeddings[0]
         except Exception as exc:
             logger.warning("Could not generate query embedding for global retrieval: %s", exc)
-            return []
+            embedding = None
 
+    raw_chunks = []
     try:
         raw_chunks = postgres.search_global_chunks(
             query=query,
@@ -40,7 +41,6 @@ async def retrieve_global_knowledge(
         )
     except Exception as exc:
         logger.warning("Could not search global chunks: %s", exc)
-        return []
 
     results = []
     seen_contents = set()
@@ -81,5 +81,27 @@ async def retrieve_global_knowledge(
                 "quote": content[:300] + ("..." if len(content) > 300 else ""),
             }
         )
+
+    if not results:
+        from app.retrieval.kb_authorities import match_core_kb_authorities
+        core_auths = match_core_kb_authorities(query, limit=k)
+        for a in core_auths:
+            results.append({
+                "source_id": a["id"],
+                "document_id": a.get("document_id", a["id"]),
+                "document_title": a["name"],
+                "name": a["name"],
+                "source_type": "global_legal_authority",
+                "jurisdiction": "India",
+                "publication_date": None,
+                "effective_date": None,
+                "source": "official",
+                "url": a.get("url", "/api/knowledge-base/documents"),
+                "page": a.get("page_start", 1),
+                "section": a.get("section") or "Statutory Provisions",
+                "content": a.get("content", ""),
+                "score": 0.85,
+                "quote": a.get("snippet", ""),
+            })
 
     return results
